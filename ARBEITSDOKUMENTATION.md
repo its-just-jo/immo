@@ -1,6 +1,6 @@
 # Arbeitsdokumentation – Immobilien-Kalkulator
 
-> Stand: 22.06.2026 · Branch: `claude/project-setup-implementation-ik00ks`
+> Stand: 22.06.2026 · Branch: `claude/next-steps-markdown-n5fb00`
 > Diese Datei dokumentiert den Umsetzungsstand, getroffene Entscheidungen und offene Punkte,
 > damit die Arbeit später nahtlos fortgesetzt werden kann.
 
@@ -24,6 +24,8 @@ Genau wie in den Anforderungen (Kapitel 2) gefordert.
 | **Wizard Schritt 4 – Finanzierung** | ✅ | EK-Vorschlag (20 % auto, überschreibbar), Sollzins, Zinsbindung, Tilgung (Schieberegler 1–4 %). Darlehen, LTV (Ampel), Annuität mit Zins-/Tilgungsanteil, Restschuld, 3 Zinsänderungsszenarien, LTV-Warnung. |
 | **Wizard Schritt 5 – Kosten & Steuern** | ✅ | Hausverwaltung, Instandhaltung (Peterssche Formel, auto + überschreibbar), Mietausfallwagnis, nicht umlagefähige NK, WEG-Rücklage mit Warnhinweis, Grenzsteuersatz, Gebäudeanteil (Schieberegler). Auto-Steuerrechnung (AfA, Zinsen, Werbungskosten, Steuereffekt). |
 | **Wizard Schritt 6 – Auswertung** | ✅ | Monatlicher Cashflow vor/nach Steuern, Kennzahlen-Tableau (7 Kennzahlen mit Ampel + Grenzwerten), **10 Risikokarten** (aufklappbar), Veto-Signal, Anbieter-Check (6 Häkchen, Gutachter-Hinweis ab 2). |
+| **Mehrjahres-Simulation** | ✅ | In Schritt 6: 20-Jahres-Projektion mit Tilgungsverlauf, Mietsteigerung und Wertentwicklung (Slider für beide Raten). Schnappschüsse Jahr 1/5/10/15/20: Miete, Cashflow n. St., Restschuld, Objektwert, Immo-Nettovermögen + kumulierter Cashflow. |
+| **Objekt-Vergleich** | ✅ | Eigene Vergleichsansicht (Dashboard-Button „Objekte vergleichen"): zwei oder mehr Projekte als Kennzahlen-Tabelle nebeneinander, je Zeile wird der günstigere Wert markiert (✓). |
 | **Lebenszyklus-Checkliste** | ✅ | Alle 9 Phasen + Meta-Ebene aus Kapitel 4. Jeder Punkt mit Pflicht/Optional-Markierung und 4 Status (`[ ]` offen · `[~]` Arbeit · `[x]` erledigt · `[–]` übersprungen). Status wird gespeichert. Risiko-Ampel der Checkliste kippt, wenn Pflichtpunkte übersprungen werden. |
 | **Druck/Export** | ✅ | Print-Stylesheet (`@media print`), „Drucken / als PDF"-Button in Schritt 6. |
 
@@ -72,7 +74,8 @@ Abweichungen vom Wortlaut der MD – jeweils mit Begründung:
    Implementiert ist der korrekte Weg: `steuerlicher Verlust = Jahreskaltmiete − Werbungskosten`,
    Ersparnis = `|Verlust| × Grenzsteuersatz`. Bei Gewinn entsteht entsprechend Steuerlast.
    Die eigene Erklärbox der MD („entsteht, weil du anfangs Verluste machst") stützt diesen Weg.
-   → **Entscheidung bestätigen oder bewusst auf die einfache Variante zurückstellen.**
+   → **Entscheidung getroffen (22.06.2026): Die fachlich korrekte Variante bleibt.** Sie wird
+   auch in der neuen Mehrjahres-Simulation verwendet (Steuervorteil schmilzt mit sinkenden Zinsen).
 
 2. **Beleihungsauslauf (LTV)** – berechnet als `Darlehen / Kaufpreis` (fachliche Definition).
    Mit dem 20 %-EK-Vorschlag ergibt das im Beispiel ~87 % (nicht die in der MD genannten 80 %,
@@ -101,8 +104,8 @@ Abweichungen vom Wortlaut der MD – jeweils mit Begründung:
 Diese optionalen Features aus Kapitel 4 sind noch **nicht** funktional (in der Checkliste als
 Punkte vorhanden, aber ohne eigene Berechnung):
 
-- [ ] **Objekt-Vergleich** zwei Projekte nebeneinander (Tabellenansicht). Klonen existiert bereits als Basis.
-- [ ] **Mehrjahres-Simulation** (10/20 Jahre): Tilgungsverlauf, Mietsteigerung, Wertsteigerung.
+- [x] **Objekt-Vergleich** – umgesetzt (Vergleichsansicht über Dashboard, mehrere Projekte als Kennzahlen-Tabelle).
+- [x] **Mehrjahres-Simulation** (20 Jahre): Tilgungsverlauf, Mietsteigerung, Wertsteigerung – umgesetzt in Schritt 6.
 - [ ] **15-%-Grenze-Rechner** (Sanierungskosten 3 Jahre vs. 15 % der Gebäudekosten).
 - [ ] **Spekulationsfrist-Rechner** (Kaufdatum → 10-Jahres-Frist) und **3-Objekt-Grenze**.
 - [ ] **Anschlussfinanzierung als eigener Rechner** (über die Szenarien in Schritt 4 hinaus).
@@ -113,10 +116,21 @@ Punkte vorhanden, aber ohne eigene Berechnung):
 - [ ] **Projekt-Zusammenfassung** als eigene kompakte Seite (Druck funktioniert bereits über Schritt 6).
 
 ### Empfohlene nächste Schritte
-1. Entscheidung zu Punkt 3.1 (Steuerersparnis-Methode) treffen.
-2. Mehrjahres-Simulation umsetzen – größter Mehrwert für die Bewertung.
-3. Objekt-Vergleichsansicht (nutzt vorhandene Klon-Funktion).
-4. Regionsspannen/Richtwerte im `CFG` gegen aktuelle Marktdaten gegenprüfen.
+Die vier zuvor empfohlenen Schritte sind abgearbeitet:
+
+1. ✅ Entscheidung zu Punkt 3.1 (Steuerersparnis-Methode) – korrekte Variante bestätigt.
+2. ✅ Mehrjahres-Simulation umgesetzt (20 Jahre, Schritt 6).
+3. ✅ Objekt-Vergleichsansicht umgesetzt (Dashboard → „Objekte vergleichen").
+4. ✅ Regionsspannen im `CFG` überarbeitet (Stand Q2/2026, München angehoben,
+   Ravensburg + Ulm ergänzt; `CFG.regionenStand` wird im Hinweis angezeigt).
+   → Die Werte sind weiterhin **Richtwerte** und sollten vor einer Kaufentscheidung
+   gegen den lokalen Gutachterausschuss / BORIS abgeglichen werden.
+
+**Neue Kandidaten für die Weiterarbeit:**
+1. 15-%-Grenze- und Spekulationsfrist-Rechner (Phasen 6/9 der Checkliste).
+2. Anschlussfinanzierung mit abweichendem Anschlusszins in der Simulation
+   (aktuell wird vereinfachend der gleiche Zins über die ganze Laufzeit angenommen).
+3. Denkmal-AfA mit separatem Sanierungskosten-Feld.
 
 ---
 
