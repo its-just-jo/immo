@@ -1,0 +1,130 @@
+# Arbeitsdokumentation – Immobilien-Kalkulator
+
+> Stand: 22.06.2026 · Branch: `claude/project-setup-implementation-ik00ks`
+> Diese Datei dokumentiert den Umsetzungsstand, getroffene Entscheidungen und offene Punkte,
+> damit die Arbeit später nahtlos fortgesetzt werden kann.
+
+---
+
+## 1. Was bereits umgesetzt ist
+
+Die komplette Anwendung liegt in **einer einzigen Datei: `index.html`** – Vanilla JS, kein Build,
+keine externen Abhängigkeiten, läuft per Doppelklick im Browser (auch iPhone/Safari) und offline.
+Genau wie in den Anforderungen (Kapitel 2) gefordert.
+
+### Vollständig funktionsfähig
+
+| Bereich | Status | Details |
+|---------|--------|---------|
+| **Projektverwaltung** | ✅ | Projekte anlegen, Dashboard-Übersicht (Name · Phase · Ampel · Datum), Speichern in `localStorage`, Duplizieren (Szenario-Klon), Löschen. |
+| **Wizard Schritt 0 – Start** | ✅ | Begrüßung, Projektname + Notizfeld. |
+| **Wizard Schritt 1 – Objekt** | ✅ | Kaufpreis, Wohnfläche, Bundesland, **Region** (für Preisvergleich), Baujahr, Energieklasse A–G, WEG ja/nein. Auto-Hinweisbox „Kaufpreis/m²" mit grün/gelb/rot je nach Regionsspanne. |
+| **Wizard Schritt 2 – Kaufnebenkosten** | ✅ | Vollautomatische Berechnung (GrESt BY 3,5 % / BW 5,0 %, Notar 1,8 %, Makler 3,57 %), BW-Mehrkosten-Hinweis, EK-Hinweis. Makler an/aus + Provision anpassbar. |
+| **Wizard Schritt 3 – Mieteinnahmen** | ✅ | Kaltmiete, Mietpreisbremse (ja/nein/weiß nicht) mit Hinweistext, Sofortberechnung Bruttomietrendite + Kaufpreisfaktor + Preis/m² mit Ampeln. |
+| **Wizard Schritt 4 – Finanzierung** | ✅ | EK-Vorschlag (20 % auto, überschreibbar), Sollzins, Zinsbindung, Tilgung (Schieberegler 1–4 %). Darlehen, LTV (Ampel), Annuität mit Zins-/Tilgungsanteil, Restschuld, 3 Zinsänderungsszenarien, LTV-Warnung. |
+| **Wizard Schritt 5 – Kosten & Steuern** | ✅ | Hausverwaltung, Instandhaltung (Peterssche Formel, auto + überschreibbar), Mietausfallwagnis, nicht umlagefähige NK, WEG-Rücklage mit Warnhinweis, Grenzsteuersatz, Gebäudeanteil (Schieberegler). Auto-Steuerrechnung (AfA, Zinsen, Werbungskosten, Steuereffekt). |
+| **Wizard Schritt 6 – Auswertung** | ✅ | Monatlicher Cashflow vor/nach Steuern, Kennzahlen-Tableau (7 Kennzahlen mit Ampel + Grenzwerten), **10 Risikokarten** (aufklappbar), Veto-Signal, Anbieter-Check (6 Häkchen, Gutachter-Hinweis ab 2). |
+| **Lebenszyklus-Checkliste** | ✅ | Alle 9 Phasen + Meta-Ebene aus Kapitel 4. Jeder Punkt mit Pflicht/Optional-Markierung und 4 Status (`[ ]` offen · `[~]` Arbeit · `[x]` erledigt · `[–]` übersprungen). Status wird gespeichert. Risiko-Ampel der Checkliste kippt, wenn Pflichtpunkte übersprungen werden. |
+| **Druck/Export** | ✅ | Print-Stylesheet (`@media print`), „Drucken / als PDF"-Button in Schritt 6. |
+
+### Navigation
+- Fortschrittsbalken „Schritt X von 6", Weiter-Button erst aktiv wenn Pflichtfelder gefüllt,
+  Zurück jederzeit, Werte bleiben erhalten. Tabs „Kalkulation" / „Projekt-Checkliste".
+
+---
+
+## 2. Architektur der `index.html` (Orientierung im Code)
+
+Der `<script>`-Block ist in klar abgegrenzte Abschnitte gegliedert (jeweils per Kommentarbanner):
+
+1. **`CFG`** – alle Richtwerte/Konstanten an einer Stelle (Steuersätze, AfA-Sätze,
+   Herstellungskosten, Regionsspannen). → Hier zukünftige Wertanpassungen vornehmen.
+2. **Storage-Layer** – `loadAll/saveAll/createProject/getProject/persist/duplicateProject/deleteProject`,
+   Datenmodell `blankInputs()`. Speicher-Key: `immo_projekte_v1`.
+3. **Formatierung** – `fmtEUR`, `fmtPct`, `esc`.
+4. **`calc(inp)`** – **die einzige Stelle mit Finanzformeln.** Gibt ein Objekt mit allen
+   abgeleiteten Werten zurück. Jede Anzeige liest nur aus diesem Ergebnis.
+5. **Dashboard-Render**.
+6. **Wizard** – `STEP_RENDER[0..6]` (HTML pro Schritt) + `STEP_BIND[0..6]` (Event-Handler).
+   Hilfsfunktionen `numField/choiceField/bindNums/bindChoices`.
+7. **`riskCards()` / `vetoCheck()`** – die 10 Risikokarten.
+8. **`CHECKLIST`** – Datenstruktur aller Phasen + Render.
+
+Datenmodell eines Projekts:
+```
+{ id, name, notiz, createdAt, updatedAt, step, inputs:{...}, checklist:{ "phaseKey.index": status } }
+```
+
+---
+
+## 3. Bewusst getroffene Entscheidungen (bitte prüfen)
+
+Die Beispielzahlen in der Anforderungs-MD sind **untereinander nicht konsistent** (verschiedene
+Schritte rechnen mit leicht unterschiedlichen Mieten/Basen). Ich habe durchgängig **fachlich
+korrekte Formeln** implementiert statt einzelne Beispielzahlen nachzubauen. Validierung mit
+dem Beispiel (400.000 € / 80 m² / Bayern): Kaufnebenkosten stimmen exakt (GrESt 14.000,
+Notar 7.200, Makler 14.280, gesamt 35.480, Gesamtinvestition 435.480, Darlehen 348.384).
+
+Abweichungen vom Wortlaut der MD – jeweils mit Begründung:
+
+1. **Steuerersparnis** – Die MD rechnet `Grenzsteuersatz × Werbungskosten` (= 8.190 €).
+   Das ist steuerlich **zu hoch**, weil die Mieteinnahmen nicht gegengerechnet werden.
+   Implementiert ist der korrekte Weg: `steuerlicher Verlust = Jahreskaltmiete − Werbungskosten`,
+   Ersparnis = `|Verlust| × Grenzsteuersatz`. Bei Gewinn entsteht entsprechend Steuerlast.
+   Die eigene Erklärbox der MD („entsteht, weil du anfangs Verluste machst") stützt diesen Weg.
+   → **Entscheidung bestätigen oder bewusst auf die einfache Variante zurückstellen.**
+
+2. **Beleihungsauslauf (LTV)** – berechnet als `Darlehen / Kaufpreis` (fachliche Definition).
+   Mit dem 20 %-EK-Vorschlag ergibt das im Beispiel ~87 % (nicht die in der MD genannten 80 %,
+   die sich auf die Gesamtinvestition bezogen). Der höhere, korrekte Wert löst sinnvollerweise
+   die LTV-Warnung aus – passt zur Empfehlung der MD („20 % EK **plus** Kaufnebenkosten").
+
+3. **WEG-Erhaltungsrücklage** – in der MD in Schritt 5 als Kostenzeile gelistet, aber **nicht**
+   in der Cashflow-Aufstellung von Schritt 6. Um Doppelzählung zu vermeiden, fließt sie nicht in
+   den Cashflow ein, sondern nur in die Risikokarte 6 (Schwellenprüfung). Cashflow entspricht damit
+   exakt der Schritt-6-Tabelle der MD.
+
+4. **Region in Schritt 1** – Für die Ampel der Kaufpreis/m²-Box wird eine Stadt/Region benötigt
+   (die MD nennt Städte nur im Hinweistext). Ich habe ein optionales Region-Dropdown ergänzt
+   (Konstanz/Lindau/Friedrichshafen/München/Allgäu/Sonstige).
+
+5. **Denkmal-AfA** – vereinfacht als 2,5 % auf den Gebäudeanteil. Die echte Denkmal-AfA
+   (9 %/7 % auf **Sanierungskosten**) braucht ein separates Sanierungskosten-Feld → siehe offene Punkte.
+
+6. **Herstellungskosten/m² für die Peterssche Formel** – geschätzte Werte je Baualter im `CFG`
+   hinterlegt (1.700–2.500 €/m²). Der Eigenanteil ist editierbar; ggf. Werte verfeinern.
+
+---
+
+## 4. Offene Punkte / Backlog (noch nicht umgesetzt)
+
+Diese optionalen Features aus Kapitel 4 sind noch **nicht** funktional (in der Checkliste als
+Punkte vorhanden, aber ohne eigene Berechnung):
+
+- [ ] **Objekt-Vergleich** zwei Projekte nebeneinander (Tabellenansicht). Klonen existiert bereits als Basis.
+- [ ] **Mehrjahres-Simulation** (10/20 Jahre): Tilgungsverlauf, Mietsteigerung, Wertsteigerung.
+- [ ] **15-%-Grenze-Rechner** (Sanierungskosten 3 Jahre vs. 15 % der Gebäudekosten).
+- [ ] **Spekulationsfrist-Rechner** (Kaufdatum → 10-Jahres-Frist) und **3-Objekt-Grenze**.
+- [ ] **Anschlussfinanzierung als eigener Rechner** (über die Szenarien in Schritt 4 hinaus).
+- [ ] **Forward-Darlehen / Sondertilgung-Szenarien.**
+- [ ] **Mietspiegelwert-Eingabe** für präzisere Mietpreisbremsen-Prüfung.
+- [ ] **Denkmal-AfA mit Sanierungskosten-Eingabe** (9 %/7 %).
+- [ ] **Steuerliche Jahresauswertung / Werbungskosten-Export.**
+- [ ] **Projekt-Zusammenfassung** als eigene kompakte Seite (Druck funktioniert bereits über Schritt 6).
+
+### Empfohlene nächste Schritte
+1. Entscheidung zu Punkt 3.1 (Steuerersparnis-Methode) treffen.
+2. Mehrjahres-Simulation umsetzen – größter Mehrwert für die Bewertung.
+3. Objekt-Vergleichsansicht (nutzt vorhandene Klon-Funktion).
+4. Regionsspannen/Richtwerte im `CFG` gegen aktuelle Marktdaten gegenprüfen.
+
+---
+
+## 5. Testen / Ausführen
+
+- **Lokal:** `index.html` doppelklicken – fertig. Daten liegen im `localStorage` des Browsers.
+- **JS-Syntax geprüft:** `node --check` über den extrahierten Script-Block – OK.
+- **Rechenkern verifiziert:** Beispiel 400.000 € / 80 m² / Bayern / 1.200 € → Kaufnebenkosten
+  exakt wie in der MD.
+
+Kein npm, kein Server, kein Build nötig.
