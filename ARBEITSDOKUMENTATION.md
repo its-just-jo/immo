@@ -68,9 +68,21 @@ Datenmodell eines Projekts:
 Separate Storage-Keys: `immo_projekte_v1` (Projekte), `immo_settings_v1` (API-Keys/Radius),
 `immo_apicache_v1` (API-Cache, TTL 30 Tage).
 
+### Konsistenz-Refactor (Baujahr als eine Quelle)
+`baujahr` wird als **numerisches Jahr** geführt, ergänzt um ein separates **`denkmal`-Flag**.
+Die AfA-/Peterssche-Kategorie wird daraus zentral über `baujahrBucket(inp)` abgeleitet (von `calc`
+**und** der AVM genutzt) – kein doppeltes/abweichendes Baualters-Konzept mehr. Alt-Projekte mit
+kategorialem Baujahr werden beim Öffnen migriert; `baujahrBucket` akzeptiert Legacy-Strings auch
+ungespeichert. Toter `CFG.baujahrLabel` wurde entfernt.
+
 ### Hedonische Bewertung (AVM) – `bewerteImmobilie(obj, basispreis, opt)`
-Reine, seiteneffektfreie Utility-Funktion neben `calc`/`simulate` (kein eigener UI-Teil,
-nur als aufrufbare, per JSDoc typisierte Funktion). Multiplikatives, semi-logarithmisches
+Reine, seiteneffektfreie Utility-Funktion neben `calc`/`simulate`. **Über den Wizard erreichbar:**
+Objektmerkmale (Zustand, Ausstattung, Sanierungsjahr, Balkon, Aufzug/Etage, Lärm, Garagen/
+Stellplätze) werden in **Schritt 1** unter „Weitere Objektdetails" (aufklappbar, optional) erfasst;
+die **Marktwert-Schätzung** erscheint als Karte in **Schritt 6** inkl. Faktor-Aufschlüsselung und
+Vergleich Kaufpreis ↔ Modellwert (Ampel). Der **Basispreis** kommt aus dem Regions-Mittelwert
+(`CFG.regionen`, eine Quelle) und ist im UI überschreibbar (`inputs.avmBasis`). Multiplikatives,
+semi-logarithmisches
 Modell: `Gesamtpreis = (Basis-m²-Preis · Produkt aller Faktoren) · Wohnfläche + absolute Zuschläge`.
 Alle Faktoren/Fixwerte liegen in `CFG.avm` (Standardobjekt 80 m² / Bj. 1990 / Zustand „Normal" /
 Energie D-E = Faktor 1.0). Enthält Größendegression `(Fläche/80)^-0.1`, Alterswertminderung

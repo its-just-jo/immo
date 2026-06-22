@@ -153,6 +153,11 @@ input,select{font-family:inherit;font-size:1rem}
 .keyrow{display:flex;gap:8px;align-items:center}
 .keyrow .input{flex:1}
 .subtle-link{background:none;border:0;color:var(--accent);cursor:pointer;font-size:.85rem;padding:0;text-decoration:underline}
+.subdetails{border:1px solid var(--line);border-radius:12px;padding:0 14px;margin:14px 0}
+.subdetails>summary{cursor:pointer;font-weight:600;padding:12px 0;list-style:none;display:flex;align-items:center;gap:8px}
+.subdetails>summary::-webkit-details-marker{display:none}
+.subdetails>summary::before{content:'▸';color:var(--muted)}
+.subdetails[open]>summary::before{content:'▾'}
 
 .hidden{display:none !important}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -256,7 +261,9 @@ const CFG = {
   // Geschätzte Herstellungs-/Wiederherstellungskosten je m² nach Baualter (für Peterssche Formel)
   herstellungskosten: { vor1925: 1700, mittel: 2000, ab2023: 2500, denkmal: 1700 },
   defaults: {
-    bundesland:'BY', baujahr:'mittel', energieklasse:'C', weg:true,
+    bundesland:'BY', baujahr:1990, denkmal:false, energieklasse:'C', weg:true,
+    // Objektdetails für die hedonische Bewertung (AVM)
+    zustand:'normal', ausstattung:'normal',
     maklerVorhanden:true, maklerProzent:3.57,
     mietpreisbremse:'unbekannt',
     sollzins:3.60, zinsbindung:15, tilgung:2.0,
@@ -278,7 +285,6 @@ const CFG = {
     allgaeu:         {label:'Allgäu',           min:3000, max:4600},
     sonstige:        {label:'Sonstige / unbekannt', min:null, max:null}
   },
-  baujahrLabel: { vor1925:'Vor 1925', mittel:'1925–2022', ab2023:'Ab 2023', denkmal:'Denkmal' },
 
   /* ----- Externe Datenquellen (optional, Graceful Degradation) ----- */
   api: {
@@ -329,7 +335,11 @@ function blankInputs(){
   const d = CFG.defaults;
   return {
     kaufpreis:null, wohnflaeche:null, adresse:'', bundesland:d.bundesland, region:'sonstige',
-    baujahr:d.baujahr, energieklasse:d.energieklasse, weg:d.weg,
+    baujahr:d.baujahr, denkmal:d.denkmal, sanierungsjahr:null, energieklasse:d.energieklasse, weg:d.weg,
+    // Objektdetails für die Marktwert-Schätzung (AVM) – alle optional, neutrale Defaults
+    zustand:d.zustand, ausstattung:d.ausstattung,
+    balkon:false, aufzug:false, etage:null, laermDb:null,
+    garagen:0, aussenstellplaetze:0, avmBasis:null,
     maklerVorhanden:d.maklerVorhanden, maklerProzent:d.maklerProzent,
     kaltmiete:null, mietpreisbremse:d.mietpreisbremse,
     eigenkapital:null, /* null => Auto 20% */ sollzins:d.sollzins, zinsbindung:d.zinsbindung, tilgung:d.tilgung,
@@ -635,6 +645,18 @@ function lageBadges(l){
 /* =========================================================================
    BERECHNUNGS-ENGINE  – einziger Ort für alle Formeln
    ========================================================================= */
+// Leitet aus dem numerischen Baujahr (+ Denkmal-Flag) die AfA-/Kosten-Kategorie ab.
+// Einzige Quelle für die Baualters-Einordnung – von calc UND der AVM genutzt.
+function baujahrBucket(inp){
+  if(inp.denkmal || inp.baujahr === 'denkmal') return 'denkmal';
+  // Legacy: früher wurde die Kategorie direkt gespeichert
+  if(typeof inp.baujahr === 'string' && ['vor1925','mittel','ab2023'].includes(inp.baujahr)) return inp.baujahr;
+  const y = +inp.baujahr || 0;
+  if(y && y < 1925) return 'vor1925';
+  if(y >= 2023)     return 'ab2023';
+  return 'mittel';
+}
+
 function calc(inp){
   const r = {};
   const kp = +inp.kaufpreis || 0;
@@ -691,7 +713,8 @@ function calc(inp){
   // ---- Laufende Kosten ----
   r.hausverwaltung = +inp.hausverwaltung||0;
   // Instandhaltung Eigenanteil (Peterssche Formel)
-  const hk = CFG.herstellungskosten[inp.baujahr] || CFG.herstellungskosten.mittel;
+  const bucket = baujahrBucket(inp);
+  const hk = CFG.herstellungskosten[bucket] || CFG.herstellungskosten.mittel;
   r.instandhaltungAuto = flaeche>0 ? (hk*flaeche*1.5/80/12)*0.70 : 0;
   r.instandhaltung = (inp.instandhaltung==null||inp.instandhaltung==='') ? r.instandhaltungAuto : (+inp.instandhaltung||0);
   r.mietausfall = jahresmiete*(+inp.mietausfallProzent||0)/100/12;
@@ -704,7 +727,7 @@ function calc(inp){
 
   // ---- Steuer ----
   const gebAnteil = (+inp.gebaeudeanteil||70)/100;
-  r.afaSatz = CFG.afaSatz[inp.baujahr] || CFG.afaSatz.mittel;
+  r.afaSatz = CFG.afaSatz[bucket] || CFG.afaSatz.mittel;
   r.afaBasis = r.gesamtinvest * gebAnteil; // anteilige Kaufnebenkosten aktiviert
   r.afaJahr = r.afaBasis * r.afaSatz;
   r.werbungskostenJahr = r.afaJahr + r.zinsenJahr1 + r.bewirtschaftungJahr;
@@ -943,6 +966,12 @@ function openProject(id){
   // Migration: fehlende Eingabefelder (neuere Versionen) mit Defaults auffüllen
   const blank = blankInputs();
   for(const k in blank){ if(!(k in current.inputs)) current.inputs[k]=blank[k]; }
+  // Migration: früheres kategoriales Baujahr ('mittel' etc.) -> Jahr + Denkmal-Flag
+  if(typeof current.inputs.baujahr === 'string'){
+    const jahrMap = {vor1925:1910, mittel:1990, ab2023:2024, denkmal:1900};
+    current.inputs.denkmal = current.inputs.baujahr === 'denkmal';
+    current.inputs.baujahr = jahrMap[current.inputs.baujahr] || 1990;
+  }
   stepIndex = current.step||0;
   document.getElementById('view-dashboard').classList.add('hidden');
   document.getElementById('view-project').classList.remove('hidden');
@@ -1321,10 +1350,8 @@ STEP_RENDER[1] = ()=>{
     </div>
     ${choiceField('Bundesland','bundesland',[{val:'BY',label:'Bayern'},{val:'BW',label:'Baden-Württemberg'}],null)}
     ${choiceField('Region (für Preisvergleich)','region',Object.entries(CFG.regionen).map(([k,v])=>({val:k,label:v.label})))}
-    ${choiceField('Baujahr','baujahr',[
-      {val:'vor1925',label:'Vor 1925'},{val:'mittel',label:'1925–2022'},
-      {val:'ab2023',label:'Ab 2023'},{val:'denkmal',label:'Denkmal'}],
-      'Bestimmt den Abschreibungssatz (AfA) – im Hintergrund berücksichtigt.')}
+    ${numField('Baujahr','baujahr',null,'Bestimmt AfA und Alterswertminderung.','z. B. 1990')}
+    ${choiceField('Denkmalschutz?','denkmal',[{val:false,label:'Nein'},{val:true,label:'Ja'}],'Denkmal-AfA statt Baualters-AfA.')}
     <div class="field"><label>Energieklasse</label>
       <select class="input" data-sel="energieklasse">
         ${['A','B','C','D','E','F','G'].map(c=>`<option ${c===i.energieklasse?'selected':''}>${c}</option>`).join('')}
@@ -1332,6 +1359,30 @@ STEP_RENDER[1] = ()=>{
       <div class="hint">Vorschlag C – Mittelwert im Bestand.</div>
     </div>
     ${choiceField('In Eigentümergemeinschaft (WEG)?','weg',[{val:true,label:'Ja'},{val:false,label:'Nein'}])}
+
+    <details class="subdetails">
+      <summary>Weitere Objektdetails <span class="muted" style="font-weight:400">(optional – verfeinern die Marktwert-Schätzung)</span></summary>
+      ${choiceField('Zustand','zustand',[
+        {val:'erstbezug',label:'Erstbezug/Kernsaniert'},{val:'gut',label:'Gut/Modernisiert'},
+        {val:'normal',label:'Normal/Gepflegt'},{val:'renovierungsbeduerftig',label:'Renovierungsbedürftig'}])}
+      ${choiceField('Ausstattung','ausstattung',[
+        {val:'luxus',label:'Luxus'},{val:'gehoben',label:'Gehoben'},
+        {val:'normal',label:'Normal'},{val:'einfach',label:'Einfach'}])}
+      ${numField('Jahr der Vollsanierung','sanierungsjahr',null,'Optional – setzt das Alter für die Bewertung zurück.','z. B. 2018')}
+      <div class="row2">
+        ${choiceField('Balkon / Terrasse','balkon',[{val:false,label:'Nein'},{val:true,label:'Ja'}])}
+        ${choiceField('Aufzug','aufzug',[{val:false,label:'Nein'},{val:true,label:'Ja'}])}
+      </div>
+      <div class="row2">
+        ${numField('Etage','etage',null,'Aufzug-Bonus erst ab dem 3. OG.')}
+        ${numField('Lärmbelastung','laermDb','dB','Abschlag oberhalb 65 dB.')}
+      </div>
+      <div class="row2">
+        ${numField('Garagen','garagen','Anz.')}
+        ${numField('Außenstellplätze','aussenstellplaetze','Anz.')}
+      </div>
+    </details>
+
     <div id="benchBox"></div>
     <div id="lageWrap" style="margin-top:10px">
       <button class="btn secondary" id="btnLagePruefen">📍 Lage online prüfen</button>
@@ -1685,6 +1736,12 @@ function renderEval(){
     ${kennz.map(k=>`<div class="kpi-line"><span class="k">${k[0]}<div class="hint" style="font-weight:400">${k[3]}</div></span><span class="v">${k[1]} <span class="dot ${k[2]}"></span></span></div>`).join('')}
   </div>
 
+  <div class="card" id="avmCard">
+    <h2>Marktwert-Schätzung (AVM)</h2>
+    <p class="muted" style="margin-top:0">Hedonisches Modell auf Basis von Lage, Größe, Baualter, Energie, Zustand und Ausstattung. Verfeinerbar über „Weitere Objektdetails" in Schritt 1.</p>
+    <div id="avmResult"></div>
+  </div>
+
   <div class="card">
     <h2>Risikoampel</h2>
     <p class="muted" style="margin-top:0">${reds} rot · ${yellows} gelb · ${cards.length-reds-yellows} grün. Tippe eine Karte für Details.</p>
@@ -1747,6 +1804,93 @@ function renderEval(){
     document.getElementById('wertStgVal').textContent=fmtPct(+e.target.value,1); save(); renderSim();
   });
   renderSim();
+  renderAvm();
+}
+
+/* ----- AVM-Glue: Wizard-Eingaben -> AvmObjekt, Basispreis aus Region ----- */
+function avmObjektFromInputs(i){
+  return {
+    wohnflaeche:+i.wohnflaeche||0, baujahr:+i.baujahr||0, sanierungsjahr:+i.sanierungsjahr||0,
+    energieklasse:i.energieklasse, zustand:i.zustand, ausstattung:i.ausstattung,
+    balkon:!!i.balkon, aufzug:!!i.aufzug, etage:+i.etage||0, laermDb:+i.laermDb||0,
+    garagen:+i.garagen||0, aussenstellplaetze:+i.aussenstellplaetze||0
+  };
+}
+// Basis-€/m² der Standardimmobilie: manuelle Vorgabe > Regions-Mittelwert > nicht ermittelbar.
+function avmBasispreis(i){
+  if(i.avmBasis!=null && i.avmBasis!=='') return +i.avmBasis||0;
+  const reg = CFG.regionen[i.region];
+  if(reg && reg.min!=null) return Math.round((reg.min+reg.max)/2);
+  return null;
+}
+
+function renderAvm(){
+  const out=document.getElementById('avmResult'); if(!out) return;
+  const i=current.inputs;
+  if(!(+i.wohnflaeche>0)){ out.innerHTML='<div class="hint">Bitte zuerst die Wohnfläche in Schritt 1 eingeben.</div>'; return; }
+  const reg = CFG.regionen[i.region];
+  const regMid = (reg && reg.min!=null) ? Math.round((reg.min+reg.max)/2) : null;
+  const basis = avmBasispreis(i);
+
+  // Editierbares Basis-€/m² (Vorgabe = Regions-Mittelwert), damit die Schätzung nachvollziehbar/anpassbar bleibt
+  const basisFeld = `<div class="field"><label>Basis-Quadratmeterpreis <span class="muted" style="font-weight:400">(Markt-Durchschnitt der Region)</span></label>
+    <div class="suffix-wrap">
+      <input class="input" type="number" inputmode="decimal" id="avmBasisFeld" value="${i.avmBasis==null||i.avmBasis===''?'':i.avmBasis}" placeholder="${regMid!=null?regMid:'z. B. 4000'}">
+      <span class="suffix">€/m²</span>
+    </div>
+    <div class="hint">${regMid!=null?'Vorschlag aus Region '+esc(reg.label)+': '+fmtEUR(regMid)+'/m². ':''}Überschreibbar. Entspricht einer Standardwohnung (80 m², Bj. 1990, Zustand „Normal", Energie D/E).</div>
+  </div>`;
+
+  if(basis==null){
+    out.innerHTML = `<div class="note info">Für die Schätzung in Schritt 1 eine Region mit Richtwerten wählen oder hier einen Basis-€/m² angeben.</div>${basisFeld}`;
+    bindAvmBasis();
+    return;
+  }
+
+  const erg = bewerteImmobilie(avmObjektFromInputs(i), basis);
+  const f = erg.faktoren;
+  const fl = (n)=>n.toLocaleString('de-DE',{minimumFractionDigits:3,maximumFractionDigits:3});
+  const zeile = (label,wert)=>`<tr><td>${label}</td><td class="num">×${fl(wert)}</td></tr>`;
+
+  // Vergleich Kaufpreis vs. geschätzter Marktwert
+  const kp=+i.kaufpreis||0;
+  let vergleich='';
+  if(kp>0){
+    const diff=(kp-erg.gesamtpreis)/erg.gesamtpreis*100;
+    const a = diff<=5?'g':(diff<=15?'y':'r');
+    const wort = diff<=-5?'unter dem Modellwert (günstig)':(diff<=5?'marktgerecht':(diff<=15?'leicht über Modellwert':'deutlich über Modellwert'));
+    vergleich=`<div class="kpi-line"><span class="k">Kaufpreis vs. Modellwert</span><span class="v">${diff>=0?'+':''}${fmtPct(diff,1)} <span class="dot ${a}"></span></span></div>
+      <div class="hint" style="margin-top:4px">Dein Kaufpreis liegt ${wort}.</div>`;
+  }
+
+  out.innerHTML = `
+    <div class="kpi-line"><span class="k">Geschätzter Marktwert</span><span class="v">${fmtEUR(erg.gesamtpreis)}</span></div>
+    <div class="kpi-line"><span class="k">Geschätzter Preis/m²</span><span class="v">${fmtEUR(Math.round(erg.quadratmeterpreis))}</span></div>
+    ${erg.zuschlaege>0?`<div class="kpi-line"><span class="k">davon Zuschläge (Garage/Stellplatz)</span><span class="v">${fmtEUR(erg.zuschlaege)}</span></div>`:''}
+    ${vergleich}
+    <details class="subdetails" style="margin-top:10px">
+      <summary>Faktoren im Detail</summary>
+      <div class="result"><table>
+        ${zeile('Größendegression', f.groesse)}
+        ${zeile('Alter / Sanierung', f.alter)}
+        ${zeile('Energieklasse '+esc(i.energieklasse||'–'), f.energie)}
+        ${zeile('Zustand', f.zustand)}
+        ${zeile('Ausstattung', f.ausstattung)}
+        ${zeile('Balkon/Terrasse', f.balkon)}
+        ${zeile('Aufzug (ab 3. OG)', f.aufzug)}
+        ${zeile('Lärmbelastung', f.laerm)}
+      </table></div>
+    </details>
+    ${basisFeld}
+    <div class="hint">Schätzwert, kein Ersatz für ein Gutachten. Modell: (Basis-€/m² × Produkt aller Faktoren) × Wohnfläche + Zuschläge.</div>`;
+  bindAvmBasis();
+}
+function bindAvmBasis(){
+  const el=document.getElementById('avmBasisFeld');
+  if(el) el.addEventListener('input',e=>{
+    current.inputs.avmBasis = e.target.value===''?null:parseFloat(e.target.value.replace(',','.'));
+    save(); renderAvm();
+  });
 }
 
 function renderSim(){
