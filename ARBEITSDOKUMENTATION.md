@@ -44,17 +44,60 @@ Der `<script>`-Block ist in klar abgegrenzte Abschnitte gegliedert (jeweils per 
 2. **Storage-Layer** – `loadAll/saveAll/createProject/getProject/persist/duplicateProject/deleteProject`,
    Datenmodell `blankInputs()`. Speicher-Key: `immo_projekte_v1`.
 3. **Formatierung** – `fmtEUR`, `fmtPct`, `esc`.
-4. **`calc(inp)`** – **die einzige Stelle mit Finanzformeln.** Gibt ein Objekt mit allen
-   abgeleiteten Werten zurück. Jede Anzeige liest nur aus diesem Ergebnis.
-5. **Dashboard-Render**.
-6. **Wizard** – `STEP_RENDER[0..6]` (HTML pro Schritt) + `STEP_BIND[0..6]` (Event-Handler).
-   Hilfsfunktionen `numField/choiceField/bindNums/bindChoices`.
-7. **`riskCards()` / `vetoCheck()`** – die 10 Risikokarten.
-8. **`CHECKLIST`** – Datenstruktur aller Phasen + Render.
+4. **Externe Datenquellen** (optional, siehe Kapitel 6) – `loadSettings/saveSettings`,
+   Cache (`cacheGet/cacheSet`), API-Clients `apiGeocode/apiOSM/apiDestatis`, Orchestrator
+   `lageEnrich`, Bewertung `microScoreFromPOI/lageScore`. Komplett gekapselt, beeinflusst
+   `calc` nie direkt.
+5. **`calc(inp)`** – **die einzige Stelle mit Finanzformeln.** Gibt ein Objekt mit allen
+   abgeleiteten Werten zurück. Jede Anzeige liest nur aus diesem Ergebnis. **Bleibt rein
+   synchron und netz-unabhängig.**
+6. **Dashboard-Render** (inkl. `projektAmpel` mit gebremstem Lage-Nudge).
+7. **Wizard** – `STEP_RENDER[0..6]` (HTML pro Schritt) + `STEP_BIND[0..6]` (Event-Handler).
+   Hilfsfunktionen `numField/choiceField/bindNums/bindChoices`. Schritt 1 enthält die
+   Lage-Analyse (`runLageEnrich/renderLageBox`), Schritt 6 die Simulation (`renderSim`).
+8. **`riskCards()` / `vetoCheck()`** – Risikokarten (10 fix + optional Karte 11 „Mikrolage").
+9. **Vergleich** (`showCompare/renderCompare`) und **Einstellungen** (`showSettings/renderSettings`).
+10. **`CHECKLIST`** – Datenstruktur aller Phasen + Render.
 
 Datenmodell eines Projekts:
 ```
-{ id, name, notiz, createdAt, updatedAt, step, inputs:{...}, checklist:{ "phaseKey.index": status } }
+{ id, name, notiz, createdAt, updatedAt, step,
+  inputs:{ …, adresse, lage:{…}|null },
+  checklist:{ "phaseKey.index": status } }
+```
+Separate Storage-Keys: `immo_projekte_v1` (Projekte), `immo_settings_v1` (API-Keys/Radius),
+`immo_apicache_v1` (API-Cache, TTL 30 Tage).
+
+### Konsistenz-Refactor (Baujahr als eine Quelle)
+`baujahr` wird als **numerisches Jahr** geführt, ergänzt um ein separates **`denkmal`-Flag**.
+Die AfA-/Peterssche-Kategorie wird daraus zentral über `baujahrBucket(inp)` abgeleitet (von `calc`
+**und** der AVM genutzt) – kein doppeltes/abweichendes Baualters-Konzept mehr. Alt-Projekte mit
+kategorialem Baujahr werden beim Öffnen migriert; `baujahrBucket` akzeptiert Legacy-Strings auch
+ungespeichert. Toter `CFG.baujahrLabel` wurde entfernt.
+
+### Hedonische Bewertung (AVM) – `bewerteImmobilie(obj, basispreis, opt)`
+Reine, seiteneffektfreie Utility-Funktion neben `calc`/`simulate`. **Über den Wizard erreichbar:**
+Objektmerkmale (Zustand, Ausstattung, Sanierungsjahr, Balkon, Aufzug/Etage, Lärm, Garagen/
+Stellplätze) werden in **Schritt 1** unter „Weitere Objektdetails" (aufklappbar, optional) erfasst;
+die **Marktwert-Schätzung** erscheint als Karte in **Schritt 6** inkl. Faktor-Aufschlüsselung und
+Vergleich Kaufpreis ↔ Modellwert (Ampel). Der **Basispreis** kommt aus dem Regions-Mittelwert
+(`CFG.regionen`, eine Quelle) und ist im UI überschreibbar (`inputs.avmBasis`). Multiplikatives,
+semi-logarithmisches
+Modell: `Gesamtpreis = (Basis-m²-Preis · Produkt aller Faktoren) · Wohnfläche + absolute Zuschläge`.
+Alle Faktoren/Fixwerte liegen in `CFG.avm` (Standardobjekt 80 m² / Bj. 1990 / Zustand „Normal" /
+Energie D-E = Faktor 1.0). Enthält Größendegression `(Fläche/80)^-0.1`, Alterswertminderung
+0,7 %/Jahr mit hartem Cap bei 0.60, kategorische Multiplikatoren (Energie/Zustand/Ausstattung),
+Dummies (Balkon, Aufzug ab 3. OG, Lärm > 65 dB) und absolute Zuschläge für Garagen/Stellplätze
+(konfigurierbar via `opt`). Rundung erst am Ende, kaufmännisch (`rundeKaufmaennisch`).
+Rückgabe: `{ gesamtpreis, quadratmeterpreis, zuschlaege, faktoren }`.
+
+```js
+bewerteImmobilie(
+  { wohnflaeche:120, baujahr:2015, energieklasse:'B', zustand:'gut',
+    ausstattung:'gehoben', balkon:true, aufzug:true, etage:4, garagen:1 },
+  5000,                       // regionaler Basis-m²-Preis
+  { aktuellesJahr:2026 }      // optional: garagenWert, stellplatzWert, aktuellesJahr
+); // -> { gesamtpreis: 759652, quadratmeterpreis: 6205.44, zuschlaege: 15000, faktoren: {...} }
 ```
 
 ---
@@ -134,11 +177,55 @@ Die vier zuvor empfohlenen Schritte sind abgearbeitet:
 
 ---
 
-## 5. Testen / Ausführen
+## 5. Externe Datenquellen (optional, Graceful Degradation)
+
+Das Tool bleibt **ohne API-Keys voll funktionsfähig** und offline nutzbar. APIs reichern nur
+optional den Lage-Score und den Makro-Trend an. Konfiguration unter **⚙︎ Einstellungen** (Dashboard).
+
+### Daten-Flow (`lageEnrich`)
+Ausgelöst per Button **„📍 Lage online prüfen"** in Schritt 1. Jeder Schritt ist optional und
+mit `try/catch` + Timeout (`AbortController`, 12 s) gekapselt; Fehler landen als Hinweis in
+`inputs.lage.hinweise`, ohne den Rest zu stoppen.
+
+| Schritt | Quelle | Key | Ergebnis | Fallback |
+|---------|--------|-----|----------|----------|
+| **A** | OpenCage Geocoding | ja | lat/lon, Landkreis, ggf. Regionalschlüssel (AGS) | übersprungen → nur manuelle Eingaben |
+| **B** | Overpass / OpenStreetMap | nein | POI-Zählung (Supermärkte, ÖPNV, Schulen/Kitas) → **Mikrolage-Score 0–100** | kein Score |
+| **C** | Destatis GENESIS *(experimentell)* | ja | Bevölkerungstrend → **Makro-Modifier** (max. ±0,5 %) | kein Trend (oft CORS-bedingt) |
+
+### Einfluss auf die Bewertung (bewusst „gebremst")
+- **Mikrolage-Score** → eigene KPI/Risikokarte 11 und **nudged die Gesamtampel um höchstens
+  eine Stufe** (`projektAmpel`).
+- **Makro-Trend** → **Vorschlag** für die Wertsteigerung in der Simulation (per „übernehmen"-Link),
+  greift nie automatisch in `calc` ein.
+
+### Caching
+`immo_apicache_v1` in `localStorage`, **TTL 30 Tage**. Vor jedem API-Call wird zuerst der Cache
+geprüft (Schlüssel: normalisierte Adresse / `lat,lon,radius` / AGS) → spart Credits, auch
+projektübergreifend. „Cache leeren" in den Einstellungen.
+
+### Sicherheit & Einschränkungen (bewusst so)
+- **API-Keys liegen unverschlüsselt in `localStorage`** und sind auf dem Gerät einsehbar – nur für
+  ein privates, lokales Tool gedacht. Hinweis ist im UI sichtbar.
+- **Apple-Schlüsselbund-Kompatibilität:** Je Anbieter ein eigenes `<form>` mit `username`-Feld
+  (Dienstname, `autocomplete="username"`) + Key-Feld `type="password"`
+  `autocomplete="current-password"` und `name="api-key"`/`id="api-key-<dienst>"`. `current-password`
+  (statt `new-password`) verhindert den Passwortgenerator und triggert Autofill.
+- **CORS:** OpenCage und Overpass senden `Access-Control-Allow-Origin: *` → laufen direkt im
+  Browser. **Destatis** unterstützt CORS nicht zuverlässig → Schritt C kann im reinen Browser-
+  Kontext scheitern (Trend bleibt leer). Parsing in `parseDestatisTrend` ist defensiv und
+  müsste für eine produktive Nutzung an die konkrete GENESIS-Tabelle angepasst werden.
+
+---
+
+## 6. Testen / Ausführen
 
 - **Lokal:** `index.html` doppelklicken – fertig. Daten liegen im `localStorage` des Browsers.
 - **JS-Syntax geprüft:** `node --check` über den extrahierten Script-Block – OK.
 - **Rechenkern verifiziert:** Beispiel 400.000 € / 80 m² / Bayern / 1.200 € → Kaufnebenkosten
   exakt wie in der MD.
+- **API-Schicht (gemockt) verifiziert:** Cache-TTL, Mikrolage-Score (61 bzw. 100 bei Sättigung),
+  Enrich-Flow (geo+osm), Graceful Degradation ohne Keys und der gebremste Ampel-Nudge wurden
+  mit Stub-`fetch`/`localStorage` getestet.
 
 Kein npm, kein Server, kein Build nötig.
