@@ -1,0 +1,1177 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Immobilien-Kalkulator – Bayern &amp; Baden-Württemberg</title>
+<style>
+:root{
+  --bg:#f4f6f8; --card:#ffffff; --ink:#1c2733; --muted:#5b6b7b; --line:#e2e8f0;
+  --accent:#2563eb; --accent-dark:#1d4ed8;
+  --green:#15803d; --green-bg:#dcfce7;
+  --yellow:#a16207; --yellow-bg:#fef9c3;
+  --red:#b91c1c; --red-bg:#fee2e2;
+  --radius:14px; --shadow:0 1px 3px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.04);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  background:var(--bg); color:var(--ink); line-height:1.5; font-size:16px;
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:760px;margin:0 auto;padding:16px 16px 64px}
+h1{font-size:1.4rem;margin:.2em 0}
+h2{font-size:1.15rem;margin:.6em 0 .3em}
+h3{font-size:1rem;margin:.8em 0 .3em}
+p{margin:.4em 0}
+small,.muted{color:var(--muted)}
+button{font-family:inherit;font-size:1rem;cursor:pointer}
+input,select{font-family:inherit;font-size:1rem}
+
+/* ---------- App header ---------- */
+.appbar{
+  display:flex;align-items:center;gap:10px;justify-content:space-between;
+  padding:10px 0 14px;
+}
+.appbar .brand{display:flex;align-items:center;gap:8px;font-weight:700}
+.appbar .brand .logo{font-size:1.5rem}
+.btn{
+  background:var(--accent);color:#fff;border:0;border-radius:10px;
+  padding:10px 16px;font-weight:600;transition:background .15s;
+}
+.btn:hover{background:var(--accent-dark)}
+.btn:disabled{background:#aebfd4;cursor:not-allowed}
+.btn.secondary{background:#eef2f7;color:var(--ink)}
+.btn.secondary:hover{background:#e2e8f0}
+.btn.ghost{background:transparent;color:var(--accent);padding:8px 10px}
+.btn.small{padding:6px 12px;font-size:.9rem}
+.btn.danger{background:var(--red-bg);color:var(--red)}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;margin:14px 0}
+
+/* ---------- Dashboard ---------- */
+.proj-list{display:grid;gap:12px}
+.proj-item{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.proj-item .meta{font-size:.85rem;color:var(--muted)}
+.proj-actions{display:flex;gap:6px;flex-wrap:wrap}
+.phase-badge{font-size:.8rem;color:var(--muted)}
+.empty{text-align:center;color:var(--muted);padding:30px 10px}
+
+/* ---------- Progress ---------- */
+.progress{margin:6px 0 18px}
+.progress .bar{height:8px;background:var(--line);border-radius:99px;overflow:hidden}
+.progress .bar > i{display:block;height:100%;background:var(--accent);transition:width .25s}
+.progress .lbl{display:flex;justify-content:space-between;font-size:.85rem;color:var(--muted);margin-bottom:6px}
+
+/* ---------- Forms ---------- */
+.field{margin:14px 0}
+.field > label{display:block;font-weight:600;margin-bottom:5px}
+.field .hint{font-size:.82rem;color:var(--muted);margin-top:4px}
+.input, select.input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.input:focus,select.input:focus{outline:2px solid var(--accent);border-color:var(--accent)}
+.suffix-wrap{position:relative}
+.suffix-wrap .suffix{position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+.choice{display:flex;flex-wrap:wrap;gap:8px}
+.choice button{border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 14px;color:var(--ink)}
+.choice button.active{border-color:var(--accent);background:var(--accent);color:#fff}
+.range-row{display:flex;align-items:center;gap:12px}
+.range-row input[type=range]{flex:1}
+.range-val{min-width:64px;text-align:right;font-weight:600}
+
+/* ---------- Result blocks ---------- */
+.result{font-variant-numeric:tabular-nums}
+.result table{width:100%;border-collapse:collapse}
+.result td{padding:6px 0;vertical-align:top}
+.result td.num{text-align:right;font-weight:600;white-space:nowrap}
+.result tr.total td{border-top:2px solid var(--ink);font-weight:700;padding-top:10px}
+.result tr.sub td{color:var(--muted);font-weight:500;padding-left:14px;font-size:.92rem}
+
+.note{border-radius:10px;padding:11px 13px;margin:10px 0;font-size:.9rem}
+.note.info{background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af}
+.note.warn{background:var(--yellow-bg);border:1px solid #fde68a;color:var(--yellow)}
+.note.green{background:var(--green-bg);border:1px solid #bbf7d0;color:var(--green)}
+.note.red{background:var(--red-bg);border:1px solid #fecaca;color:var(--red)}
+
+.kpi-line{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+.kpi-line:last-child{border-bottom:0}
+.kpi-line .k{font-weight:600}
+.kpi-line .v{display:flex;align-items:center;gap:8px;font-variant-numeric:tabular-nums;font-weight:700}
+.dot{width:13px;height:13px;border-radius:99px;display:inline-block}
+.dot.g{background:var(--green)} .dot.y{background:var(--yellow)} .dot.r{background:var(--red)}
+.pill{font-size:.75rem;padding:2px 8px;border-radius:99px;font-weight:600}
+.pill.g{background:var(--green-bg);color:var(--green)}
+.pill.y{background:var(--yellow-bg);color:var(--yellow)}
+.pill.r{background:var(--red-bg);color:var(--red)}
+
+/* ---------- Risk cards ---------- */
+.risk-grid{display:grid;gap:10px}
+.risk{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.risk > summary{list-style:none;cursor:pointer;padding:12px 14px;display:flex;align-items:center;gap:10px;justify-content:space-between}
+.risk > summary::-webkit-details-marker{display:none}
+.risk .rtitle{display:flex;align-items:center;gap:10px}
+.risk .rbody{padding:0 14px 14px;font-size:.9rem;color:var(--muted)}
+.risk.g{border-left:5px solid var(--green)}
+.risk.y{border-left:5px solid var(--yellow)}
+.risk.r{border-left:5px solid var(--red)}
+.risk .rval{font-weight:700;font-variant-numeric:tabular-nums}
+
+.check{display:flex;align-items:flex-start;gap:10px;padding:7px 0}
+.check input{margin-top:4px;width:18px;height:18px}
+
+/* ---------- Wizard nav ---------- */
+.wiznav{display:flex;justify-content:space-between;gap:10px;margin-top:18px}
+
+/* ---------- Checklist ---------- */
+.phase{margin:10px 0}
+.phase > summary{cursor:pointer;font-weight:600;padding:10px 0;display:flex;align-items:center;gap:8px}
+.cl-item{display:flex;gap:10px;padding:9px 0;border-top:1px solid var(--line);align-items:flex-start}
+.cl-item .art{font-size:.7rem;font-weight:700;padding:2px 7px;border-radius:6px;white-space:nowrap;margin-top:2px}
+.cl-item .art.pflicht{background:#fee2e2;color:#b91c1c}
+.cl-item .art.optional{background:#e2e8f0;color:#475569}
+.cl-item .cl-main{flex:1}
+.cl-item .cl-desc{font-size:.84rem;color:var(--muted)}
+.status-btns{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.status-btns button{border:1px solid var(--line);background:#fff;border-radius:7px;padding:3px 9px;font-size:.78rem}
+.status-btns button.on[data-s=open]{background:#e2e8f0}
+.status-btns button.on[data-s=progress]{background:var(--yellow-bg);border-color:#fde68a;color:var(--yellow)}
+.status-btns button.on[data-s=done]{background:var(--green-bg);border-color:#bbf7d0;color:var(--green)}
+.status-btns button.on[data-s=skipped]{background:var(--red-bg);border-color:#fecaca;color:var(--red)}
+
+.tabs{display:flex;gap:6px;margin:8px 0 4px;flex-wrap:wrap}
+.tabs button{border:1px solid var(--line);background:#fff;border-radius:99px;padding:7px 14px;font-size:.9rem}
+.tabs button.active{background:var(--ink);color:#fff;border-color:var(--ink)}
+
+.hidden{display:none !important}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:520px){.row2{grid-template-columns:1fr}}
+
+/* ---------- Print ---------- */
+@media print{
+  body{background:#fff}
+  .appbar,.wiznav,.tabs,.btn,.status-btns,.no-print{display:none !important}
+  .card{box-shadow:none;border:1px solid #ccc;break-inside:avoid}
+  .hidden{display:none !important}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="appbar">
+    <div class="brand"><span class="logo">🏠</span><span>Immobilien-Kalkulator</span></div>
+    <div id="appbarRight"></div>
+  </div>
+
+  <!-- ============ DASHBOARD ============ -->
+  <section id="view-dashboard">
+    <div class="card">
+      <h1>Deine Projekte</h1>
+      <p class="muted">Bayern &amp; Baden-Württemberg · Bodenseeregion. Lege pro Objekt ein Projekt an. Alle Daten bleiben nur in diesem Browser gespeichert.</p>
+      <div style="margin-top:14px"><button class="btn" id="btnNewProject">+ Neues Projekt</button></div>
+    </div>
+    <div id="projList" class="proj-list"></div>
+  </section>
+
+  <!-- ============ PROJECT (Wizard + Checklist) ============ -->
+  <section id="view-project" class="hidden">
+    <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+      <button class="btn ghost" id="btnBackDash">← Übersicht</button>
+      <div id="projTitle" style="font-weight:700"></div>
+    </div>
+
+    <div class="tabs" id="mainTabs">
+      <button data-tab="wizard" class="active">Kalkulation</button>
+      <button data-tab="checklist">Projekt-Checkliste</button>
+    </div>
+
+    <!-- WIZARD -->
+    <div id="tab-wizard">
+      <div class="progress">
+        <div class="lbl"><span id="stepLabel"></span><span id="stepCount"></span></div>
+        <div class="bar"><i id="progBar"></i></div>
+      </div>
+      <div id="wizardBody"></div>
+      <div class="wiznav">
+        <button class="btn secondary" id="btnPrev">← Zurück</button>
+        <button class="btn" id="btnNext">Weiter →</button>
+      </div>
+    </div>
+
+    <!-- CHECKLIST -->
+    <div id="tab-checklist" class="hidden"></div>
+  </section>
+
+</div>
+
+<script>
+"use strict";
+
+/* =========================================================================
+   KONFIGURATION & RICHTWERTE  (Stand Juni 2026, BY / BW / Bodensee)
+   ========================================================================= */
+const CFG = {
+  grunderwerbsteuer: { BY: 0.035, BW: 0.05 },
+  notarGrundbuch: 0.018,
+  maklerDefault: 0.0357,
+  afaSatz: { vor1925: 0.025, mittel: 0.02, ab2023: 0.03, denkmal: 0.025 },
+  // Geschätzte Herstellungs-/Wiederherstellungskosten je m² nach Baualter (für Peterssche Formel)
+  herstellungskosten: { vor1925: 1700, mittel: 2000, ab2023: 2500, denkmal: 1700 },
+  defaults: {
+    bundesland:'BY', baujahr:'mittel', energieklasse:'C', weg:true,
+    maklerVorhanden:true, maklerProzent:3.57,
+    mietpreisbremse:'unbekannt',
+    sollzins:3.60, zinsbindung:15, tilgung:2.0,
+    hausverwaltung:35, mietausfallProzent:2, nichtUmlagefaehigProzent:3, wegRuecklage:1.00,
+    grenzsteuersatz:35, gebaeudeanteil:70,
+    ekQuote:0.20
+  },
+  // Kaufpreis/m² Spannen (€) je Region
+  regionen: {
+    konstanz:        {label:'Konstanz',        min:3400, max:4500},
+    lindau:          {label:'Lindau',          min:4500, max:5500},
+    friedrichshafen: {label:'Friedrichshafen',  min:3000, max:4200},
+    muenchen:        {label:'München',          min:7000, max:9000},
+    allgaeu:         {label:'Allgäu',           min:3000, max:4500},
+    sonstige:        {label:'Sonstige / unbekannt', min:null, max:null}
+  },
+  baujahrLabel: { vor1925:'Vor 1925', mittel:'1925–2022', ab2023:'Ab 2023', denkmal:'Denkmal' }
+};
+
+/* =========================================================================
+   STORAGE-LAYER  (localStorage, ein Eintrag pro Projektliste)
+   ========================================================================= */
+const STORE_KEY = 'immo_projekte_v1';
+
+function loadAll(){
+  try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
+  catch(e){ return []; }
+}
+function saveAll(list){ localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
+
+function newId(){ return 'p'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+
+function blankInputs(){
+  const d = CFG.defaults;
+  return {
+    kaufpreis:null, wohnflaeche:null, bundesland:d.bundesland, region:'sonstige',
+    baujahr:d.baujahr, energieklasse:d.energieklasse, weg:d.weg,
+    maklerVorhanden:d.maklerVorhanden, maklerProzent:d.maklerProzent,
+    kaltmiete:null, mietpreisbremse:d.mietpreisbremse,
+    eigenkapital:null, /* null => Auto 20% */ sollzins:d.sollzins, zinsbindung:d.zinsbindung, tilgung:d.tilgung,
+    hausverwaltung:d.hausverwaltung, instandhaltung:null /* null=>auto */,
+    mietausfallProzent:d.mietausfallProzent, nichtUmlagefaehigProzent:d.nichtUmlagefaehigProzent,
+    wegRuecklage:d.wegRuecklage,
+    grenzsteuersatz:d.grenzsteuersatz, gebaeudeanteil:d.gebaeudeanteil,
+    anbieterCheck:[false,false,false,false,false,false]
+  };
+}
+
+function createProject(name){
+  const list = loadAll();
+  const p = {
+    id:newId(), name:name||'Neues Objekt', notiz:'',
+    createdAt:Date.now(), updatedAt:Date.now(),
+    step:0, inputs:blankInputs(), checklist:{}
+  };
+  list.unshift(p);
+  saveAll(list);
+  return p;
+}
+
+function getProject(id){ return loadAll().find(p=>p.id===id); }
+
+function persist(p){
+  const list = loadAll();
+  const i = list.findIndex(x=>x.id===p.id);
+  p.updatedAt = Date.now();
+  if(i>=0) list[i]=p; else list.unshift(p);
+  saveAll(list);
+}
+
+function duplicateProject(id){
+  const src = getProject(id); if(!src) return;
+  const copy = JSON.parse(JSON.stringify(src));
+  copy.id = newId();
+  copy.name = src.name + ' (Kopie)';
+  copy.createdAt = copy.updatedAt = Date.now();
+  const list = loadAll(); list.unshift(copy); saveAll(list);
+}
+
+function deleteProject(id){
+  saveAll(loadAll().filter(p=>p.id!==id));
+}
+
+/* =========================================================================
+   FORMATIERUNG
+   ========================================================================= */
+const fmtEUR = n => (n==null||isNaN(n)) ? '—' :
+  n.toLocaleString('de-DE',{maximumFractionDigits:0}) + ' €';
+const fmtEUR2 = n => (n==null||isNaN(n)) ? '—' :
+  n.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' €';
+const fmtPct = (n,d=2) => (n==null||isNaN(n)) ? '—' :
+  n.toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d}) + ' %';
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* =========================================================================
+   BERECHNUNGS-ENGINE  – einziger Ort für alle Formeln
+   ========================================================================= */
+function calc(inp){
+  const r = {};
+  const kp = +inp.kaufpreis || 0;
+  const flaeche = +inp.wohnflaeche || 0;
+  const miete = +inp.kaltmiete || 0;
+  const jahresmiete = miete*12;
+
+  r.preisProM2 = flaeche>0 ? kp/flaeche : null;
+
+  // ---- Kaufnebenkosten ----
+  r.grestProz = CFG.grunderwerbsteuer[inp.bundesland];
+  r.grest = kp * r.grestProz;
+  r.notar = kp * CFG.notarGrundbuch;
+  r.maklerProz = inp.maklerVorhanden ? (+inp.maklerProzent/100) : 0;
+  r.makler = kp * r.maklerProz;
+  r.nebenkosten = r.grest + r.notar + r.makler;
+  r.gesamtinvest = kp + r.nebenkosten;
+
+  // ---- Renditen (Erstbewertung) ----
+  r.bruttoRendite = kp>0 ? jahresmiete/kp*100 : null;
+  r.faktor = jahresmiete>0 ? kp/jahresmiete : null;
+
+  // ---- Finanzierung ----
+  const ekAuto = r.gesamtinvest * CFG.defaults.ekQuote;
+  r.ekAuto = ekAuto;
+  const ek = (inp.eigenkapital==null||inp.eigenkapital==='') ? ekAuto : (+inp.eigenkapital||0);
+  r.eigenkapital = ek;
+  r.darlehen = Math.max(0, r.gesamtinvest - ek);
+  r.ltv = kp>0 ? r.darlehen/kp*100 : null; // Beleihungsauslauf auf Kaufpreis
+  const zins = (+inp.sollzins||0)/100;
+  const tilg = (+inp.tilgung||0)/100;
+  r.zins = zins; r.tilg = tilg;
+  r.annuitaetJahr = r.darlehen*(zins+tilg);
+  r.rateMonat = r.annuitaetJahr/12;
+  r.zinsMonat1 = r.darlehen*zins/12;
+  r.tilgMonat1 = r.rateMonat - r.zinsMonat1;
+  r.zinsenJahr1 = r.darlehen*zins; // Näherung Jahr 1 (für Steuer/Werbungskosten)
+
+  // Restschuld nach Zinsbindung (monatliche Verzinsung)
+  const i = zins/12, mths = (+inp.zinsbindung||0)*12;
+  if(r.darlehen>0 && i>0){
+    const q = Math.pow(1+i, mths);
+    r.restschuld = r.darlehen*q - r.rateMonat*(q-1)/i;
+    if(r.restschuld<0) r.restschuld=0;
+  } else { r.restschuld = r.darlehen; }
+
+  // Zinsänderungsszenarien zum Ende der Zinsbindung
+  r.szenarien = [0,1,2].map(delta=>{
+    const z = zins+delta/100;
+    const rate = r.restschuld*(z+tilg)/12;
+    return {zins:z*100, rate};
+  });
+
+  // ---- Laufende Kosten ----
+  r.hausverwaltung = +inp.hausverwaltung||0;
+  // Instandhaltung Eigenanteil (Peterssche Formel)
+  const hk = CFG.herstellungskosten[inp.baujahr] || CFG.herstellungskosten.mittel;
+  r.instandhaltungAuto = flaeche>0 ? (hk*flaeche*1.5/80/12)*0.70 : 0;
+  r.instandhaltung = (inp.instandhaltung==null||inp.instandhaltung==='') ? r.instandhaltungAuto : (+inp.instandhaltung||0);
+  r.mietausfall = jahresmiete*(+inp.mietausfallProzent||0)/100/12;
+  r.nichtUmlagefaehig = jahresmiete*(+inp.nichtUmlagefaehigProzent||0)/100/12;
+  r.wegRuecklageMonat = (+inp.wegRuecklage||0)*flaeche;
+
+  // Bewirtschaftungskosten p.a. (steuerlich abzugsfähige Werbungskosten neben Zins+AfA)
+  r.bewirtschaftungMonat = r.hausverwaltung + r.instandhaltung + r.mietausfall + r.nichtUmlagefaehig;
+  r.bewirtschaftungJahr = r.bewirtschaftungMonat*12;
+
+  // ---- Steuer ----
+  const gebAnteil = (+inp.gebaeudeanteil||70)/100;
+  r.afaSatz = CFG.afaSatz[inp.baujahr] || CFG.afaSatz.mittel;
+  r.afaBasis = r.gesamtinvest * gebAnteil; // anteilige Kaufnebenkosten aktiviert
+  r.afaJahr = r.afaBasis * r.afaSatz;
+  r.werbungskostenJahr = r.afaJahr + r.zinsenJahr1 + r.bewirtschaftungJahr;
+  // Steuerliches Ergebnis = Mieteinnahmen − Werbungskosten
+  r.steuerErgebnis = jahresmiete - r.werbungskostenJahr;
+  const grenz = (+inp.grenzsteuersatz||0)/100;
+  r.grenz = grenz;
+  if(r.steuerErgebnis < 0){
+    r.steuerEffektJahr = -r.steuerErgebnis * grenz;   // Ersparnis (positiv = Vorteil)
+  } else {
+    r.steuerEffektJahr = -(r.steuerErgebnis * grenz); // zusätzliche Steuer (negativ)
+  }
+  r.steuerEffektMonat = r.steuerEffektJahr/12;
+
+  // ---- Cashflow ----
+  r.cashflowVorSteuerMonat = miete - r.rateMonat - r.hausverwaltung - r.instandhaltung - r.mietausfall - r.nichtUmlagefaehig;
+  r.cashflowNachSteuerMonat = r.cashflowVorSteuerMonat + r.steuerEffektMonat;
+
+  // ---- weitere Kennzahlen ----
+  r.nettoRendite = r.gesamtinvest>0 ? (jahresmiete - r.bewirtschaftungJahr)/r.gesamtinvest*100 : null;
+  // EK-Rendite: (Cashflow nach Steuer p.a. + Tilgung p.a. als Vermögensaufbau) / EK
+  const tilgungJahr = r.tilgMonat1*12;
+  r.ekRendite = ek>0 ? (r.cashflowNachSteuerMonat*12 + tilgungJahr)/ek*100 : null;
+
+  return r;
+}
+
+/* ---- Ampel-Helfer ---- */
+function amp(value, greenTest, yellowTest){
+  if(value==null||isNaN(value)) return 'y';
+  if(greenTest(value)) return 'g';
+  if(yellowTest(value)) return 'y';
+  return 'r';
+}
+const ampClass = {g:'g',y:'y',r:'r'};
+const ampWord = {g:'günstig',y:'mittel',r:'kritisch'};
+
+/* =========================================================================
+   APP-STATE  &  ROUTER
+   ========================================================================= */
+let current = null;     // aktuelles Projekt
+let stepIndex = 0;      // 0..6
+
+function setRight(html){ document.getElementById('appbarRight').innerHTML = html; }
+
+function showDashboard(){
+  current=null;
+  document.getElementById('view-dashboard').classList.remove('hidden');
+  document.getElementById('view-project').classList.add('hidden');
+  setRight('');
+  renderDashboard();
+}
+
+function openProject(id){
+  current = getProject(id);
+  if(!current){ showDashboard(); return; }
+  stepIndex = current.step||0;
+  document.getElementById('view-dashboard').classList.add('hidden');
+  document.getElementById('view-project').classList.remove('hidden');
+  document.getElementById('projTitle').textContent = current.name;
+  setRight('<button class="btn secondary small" id="btnSummary">Zusammenfassung</button>');
+  document.getElementById('btnSummary').onclick = ()=>{ stepIndex=6; switchTab('wizard'); renderWizard(); };
+  switchTab('wizard');
+  renderWizard();
+  renderChecklist();
+}
+
+/* =========================================================================
+   DASHBOARD-RENDER
+   ========================================================================= */
+const PHASE_NAMES = ['Start','Objekt','Kaufnebenkosten','Miete','Finanzierung','Kosten & Steuern','Auswertung'];
+
+function projektAmpel(p){
+  const r = calc(p.inputs);
+  if(p.inputs.kaufpreis==null || p.inputs.kaltmiete==null) return 'y';
+  // grobe Gesamtampel aus Cashflow + Faktor
+  if(r.cashflowNachSteuerMonat>=0 && r.faktor!=null && r.faktor<25) return 'g';
+  if(r.cashflowNachSteuerMonat<-150 || (r.faktor!=null && r.faktor>=28)) return 'r';
+  return 'y';
+}
+
+function renderDashboard(){
+  const list = loadAll();
+  const el = document.getElementById('projList');
+  if(!list.length){
+    el.innerHTML = '<div class="card empty">Noch keine Projekte. Lege dein erstes Objekt an, um zu prüfen, ob es sich rechnet.</div>';
+    return;
+  }
+  el.innerHTML = list.map(p=>{
+    const a = projektAmpel(p);
+    const phase = PHASE_NAMES[p.step||0];
+    const upd = new Date(p.updatedAt).toLocaleDateString('de-DE');
+    return `<div class="card proj-item">
+      <div>
+        <div style="font-weight:700;font-size:1.05rem">${esc(p.name)}</div>
+        <div class="meta">Phase: ${phase} · Stand ${upd}</div>
+        ${p.notiz?`<div class="meta">${esc(p.notiz)}</div>`:''}
+      </div>
+      <div style="text-align:right">
+        <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end;margin-bottom:8px">
+          <span class="dot ${a}"></span><span class="muted" style="font-size:.85rem">${ampWord[a]}</span>
+        </div>
+        <div class="proj-actions">
+          <button class="btn small" data-open="${p.id}">Öffnen</button>
+          <button class="btn small secondary" data-dup="${p.id}">Klonen</button>
+          <button class="btn small danger" data-del="${p.id}">Löschen</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  el.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openProject(b.dataset.open));
+  el.querySelectorAll('[data-dup]').forEach(b=>b.onclick=()=>{duplicateProject(b.dataset.dup);renderDashboard();});
+  el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
+    if(confirm('Projekt wirklich löschen?')){ deleteProject(b.dataset.del); renderDashboard(); }
+  });
+}
+
+/* =========================================================================
+   WIZARD
+   ========================================================================= */
+function switchTab(tab){
+  document.querySelectorAll('#mainTabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  document.getElementById('tab-wizard').classList.toggle('hidden', tab!=='wizard');
+  document.getElementById('tab-checklist').classList.toggle('hidden', tab!=='checklist');
+}
+
+function save(){ current.step=stepIndex; persist(current); }
+
+function update(key,val){ current.inputs[key]=val; save(); }
+
+function renderWizard(){
+  const i = current.inputs;
+  document.getElementById('stepLabel').textContent = PHASE_NAMES[stepIndex];
+  document.getElementById('stepCount').textContent = 'Schritt '+stepIndex+' von 6';
+  document.getElementById('progBar').style.width = (stepIndex/6*100)+'%';
+
+  const body = document.getElementById('wizardBody');
+  body.innerHTML = STEP_RENDER[stepIndex]();
+  if(STEP_BIND[stepIndex]) STEP_BIND[stepIndex]();
+
+  // Nav-Status
+  const prev = document.getElementById('btnPrev');
+  const next = document.getElementById('btnNext');
+  prev.style.visibility = stepIndex===0 ? 'hidden':'visible';
+  next.textContent = stepIndex===6 ? 'Fertig' : 'Weiter →';
+  next.disabled = !stepValid(stepIndex);
+}
+
+function stepValid(s){
+  const i=current.inputs;
+  if(s===1) return i.kaufpreis>0 && i.wohnflaeche>0;
+  if(s===3) return i.kaltmiete>0;
+  return true;
+}
+
+/* helper builders ---------------------------------------------------- */
+function numField(label,key,suffix,hint,placeholder){
+  const v = current.inputs[key];
+  return `<div class="field"><label>${label}</label>
+    <div class="suffix-wrap">
+      <input class="input" type="number" inputmode="decimal" data-num="${key}" value="${v==null?'':v}" placeholder="${placeholder||''}">
+      ${suffix?`<span class="suffix">${suffix}</span>`:''}
+    </div>${hint?`<div class="hint">${hint}</div>`:''}</div>`;
+}
+function choiceField(label,key,options,hint){
+  const v=current.inputs[key];
+  return `<div class="field"><label>${label}</label>
+    <div class="choice" data-choice="${key}">
+      ${options.map(o=>`<button data-val="${o.val}" class="${String(o.val)===String(v)?'active':''}">${o.label}</button>`).join('')}
+    </div>${hint?`<div class="hint">${hint}</div>`:''}</div>`;
+}
+function bindNums(){
+  document.querySelectorAll('[data-num]').forEach(inp=>{
+    inp.addEventListener('input',()=>{
+      const k=inp.dataset.num;
+      current.inputs[k] = inp.value===''?null:parseFloat(inp.value.replace(',','.'));
+      save();
+      onInputChange();
+    });
+  });
+}
+function bindChoices(rerender){
+  document.querySelectorAll('[data-choice]').forEach(grp=>{
+    grp.querySelectorAll('button').forEach(btn=>{
+      btn.onclick=()=>{
+        const k=grp.dataset.choice; let v=btn.dataset.val;
+        if(v==='true')v=true; else if(v==='false')v=false;
+        current.inputs[k]=v; save();
+        if(rerender) renderWizard(); else { grp.querySelectorAll('button').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); onInputChange(); }
+      };
+    });
+  });
+}
+let onInputChange = ()=>{ document.getElementById('btnNext').disabled = !stepValid(stepIndex); };
+
+/* ---------- STEP 0 : Start ---------- */
+const STEP_RENDER = {};
+const STEP_BIND = {};
+
+STEP_RENDER[0] = ()=>`
+  <div class="card">
+    <h1>🏠 Immobilien-Kalkulator</h1>
+    <p class="muted">Bayern &amp; Baden-Württemberg · Bodenseeregion</p>
+    <p>In 6 Schritten prüfst du, ob sich eine Mietwohnung für dich rechnet. Jedes Feld hat einen Vorschlagswert – wer nichts weiß, übernimmt ihn und bekommt trotzdem ein realistisches Ergebnis.</p>
+    <h3>Du brauchst:</h3>
+    <ul>
+      <li>Den Kaufpreis aus dem Exposé</li>
+      <li>Die erwartete Monatsmiete (kalt)</li>
+      <li>Dein verfügbares Eigenkapital</li>
+    </ul>
+    <div class="field">
+      <label>Projektname</label>
+      <input class="input" id="projName" value="${esc(current.name)}">
+    </div>
+    <div class="field">
+      <label>Notiz (optional)</label>
+      <input class="input" id="projNotiz" value="${esc(current.notiz)}" placeholder="z. B. Adresse, Exposé-Link">
+    </div>
+  </div>`;
+STEP_BIND[0] = ()=>{
+  document.getElementById('projName').addEventListener('input',e=>{
+    current.name=e.target.value; document.getElementById('projTitle').textContent=current.name; save();
+  });
+  document.getElementById('projNotiz').addEventListener('input',e=>{ current.notiz=e.target.value; save(); });
+};
+
+/* ---------- STEP 1 : Objekt ---------- */
+STEP_RENDER[1] = ()=>{
+  const i=current.inputs;
+  return `<div class="card">
+    <h2>Das Objekt</h2>
+    ${numField('Kaufpreis','kaufpreis','€','Aus dem Exposé.')}
+    ${numField('Wohnfläche','wohnflaeche','m²')}
+    ${choiceField('Bundesland','bundesland',[{val:'BY',label:'Bayern'},{val:'BW',label:'Baden-Württemberg'}],null)}
+    ${choiceField('Region (für Preisvergleich)','region',Object.entries(CFG.regionen).map(([k,v])=>({val:k,label:v.label})))}
+    ${choiceField('Baujahr','baujahr',[
+      {val:'vor1925',label:'Vor 1925'},{val:'mittel',label:'1925–2022'},
+      {val:'ab2023',label:'Ab 2023'},{val:'denkmal',label:'Denkmal'}],
+      'Bestimmt den Abschreibungssatz (AfA) – im Hintergrund berücksichtigt.')}
+    <div class="field"><label>Energieklasse</label>
+      <select class="input" data-sel="energieklasse">
+        ${['A','B','C','D','E','F','G'].map(c=>`<option ${c===i.energieklasse?'selected':''}>${c}</option>`).join('')}
+      </select>
+      <div class="hint">Vorschlag C – Mittelwert im Bestand.</div>
+    </div>
+    ${choiceField('In Eigentümergemeinschaft (WEG)?','weg',[{val:true,label:'Ja'},{val:false,label:'Nein'}])}
+    <div id="benchBox"></div>
+  </div>`;
+};
+STEP_BIND[1] = ()=>{
+  bindNums(); bindChoices(false);
+  document.querySelector('[data-sel=energieklasse]').addEventListener('change',e=>{update('energieklasse',e.target.value);});
+  // Region/Bundesland Klicks sollen Benchmark neu rendern -> rerender choices for region & bundesland & baujahr handled by onInputChange
+  onInputChange = ()=>{ document.getElementById('btnNext').disabled=!stepValid(1); renderBench(); };
+  renderBench();
+};
+function renderBench(){
+  const box=document.getElementById('benchBox'); if(!box)return;
+  const i=current.inputs, r=calc(i);
+  if(!r.preisProM2){ box.innerHTML=''; return; }
+  const reg = CFG.regionen[i.region];
+  let cls='info', verdict='';
+  if(reg && reg.min!=null){
+    if(r.preisProM2 <= reg.min*1.05){cls='green';verdict='im günstigen Bereich';}
+    else if(r.preisProM2 <= reg.max){cls='warn';verdict='im oberen Normalbereich';}
+    else {cls='red';verdict='über dem regionalen Normalbereich';}
+  }
+  box.innerHTML = `<div class="note ${cls==='info'?'info':cls}">
+    <b>Dein Kaufpreis/m²: ${fmtEUR(Math.round(r.preisProM2))}</b>
+    ${reg&&reg.min!=null?` – ${verdict} (${reg.label} ${fmtEUR(reg.min)}–${fmtEUR(reg.max)}).`:''}
+    <div style="margin-top:6px;font-size:.85rem">Typisch: Konstanz 3.400–4.500 € · Lindau 4.500–5.500 € · Friedrichshafen 3.000–4.200 € · München 7.000–9.000 € · Allgäu 3.000–4.500 €.</div>
+  </div>`;
+}
+
+/* ---------- STEP 2 : Kaufnebenkosten ---------- */
+STEP_RENDER[2] = ()=>{
+  const i=current.inputs;
+  return `<div class="card">
+    <h2>Kaufnebenkosten</h2>
+    <p class="muted">Wird automatisch aus Schritt 1 berechnet. Du kannst nur den Makler anpassen.</p>
+    ${choiceField('Makler vorhanden?','maklerVorhanden',[{val:true,label:'Ja'},{val:false,label:'Nein'}])}
+    <div id="maklerFeld">${numField('Maklerprovision Käufer','maklerProzent','%')}</div>
+    <div id="nkResult"></div>
+  </div>`;
+};
+STEP_BIND[2] = ()=>{
+  bindNums(); bindChoices(false);
+  onInputChange=()=>{ renderNK(); };
+  renderNK();
+};
+function renderNK(){
+  const i=current.inputs, r=calc(i);
+  document.getElementById('maklerFeld').style.display = i.maklerVorhanden ? 'block':'none';
+  const out=document.getElementById('nkResult');
+  let bwHint = i.bundesland==='BW'
+    ? `<div class="note warn">Baden-Württemberg: Grunderwerbsteuer 5,0 % statt 3,5 % in Bayern → ${fmtEUR((i.kaufpreis||0)*0.015)} Mehrkosten bei diesem Kaufpreis.</div>`
+    : '';
+  out.innerHTML = `<div class="result card" style="margin-top:8px">
+    <table>
+      <tr><td>Grunderwerbsteuer ${i.bundesland} (${fmtPct(r.grestProz*100,1)})</td><td class="num">${fmtEUR(r.grest)}</td></tr>
+      <tr><td>Notar &amp; Grundbuch (ca. 1,8 %)</td><td class="num">${fmtEUR(r.notar)}</td></tr>
+      ${i.maklerVorhanden?`<tr><td>Makler Käufer (${fmtPct(r.maklerProz*100,2)})</td><td class="num">${fmtEUR(r.makler)}</td></tr>`:''}
+      <tr class="total"><td>Nebenkosten gesamt</td><td class="num">${fmtEUR(r.nebenkosten)}</td></tr>
+      <tr class="total"><td>Gesamtinvestition</td><td class="num">${fmtEUR(r.gesamtinvest)}</td></tr>
+    </table>
+  </div>
+  ${bwHint}
+  <div class="note info">Kaufnebenkosten werden von Banken nicht finanziert – sie müssen aus Eigenkapital gezahlt werden.</div>`;
+}
+
+/* ---------- STEP 3 : Mieteinnahmen ---------- */
+STEP_RENDER[3] = ()=>{
+  const i=current.inputs;
+  return `<div class="card">
+    <h2>Mieteinnahmen</h2>
+    ${numField('Monatliche Kaltmiete','kaltmiete','€')}
+    ${choiceField('Mietpreisbremse aktiv?','mietpreisbremse',[
+      {val:'ja',label:'Ja'},{val:'nein',label:'Nein'},{val:'unbekannt',label:'Weiß nicht'}])}
+    <div id="mpbHint"></div>
+    <div id="rendErg"></div>
+  </div>`;
+};
+STEP_BIND[3] = ()=>{
+  bindNums(); bindChoices(false);
+  onInputChange=()=>{ document.getElementById('btnNext').disabled=!stepValid(3); renderRend(); };
+  renderRend();
+};
+function renderRend(){
+  const i=current.inputs, r=calc(i);
+  document.getElementById('mpbHint').innerHTML = i.mietpreisbremse==='unbekannt'
+    ? `<div class="note info">In Bayern gilt die Mietpreisbremse ab 2026 in 285 Gemeinden, in Baden-Württemberg in 130 Gemeinden. Konstanz und Mannheim fallen ab 2026 aus der Gebietskulisse. Prüfe die aktuelle Liste deines Bundeslands.</div>`
+    : '';
+  const out=document.getElementById('rendErg');
+  if(!(i.kaltmiete>0)){ out.innerHTML=''; return; }
+  const aBrutto = amp(r.bruttoRendite, v=>v>=5, v=>v>=4);
+  const aFaktor = amp(r.faktor, v=>v<20, v=>v<25);
+  out.innerHTML = `<div class="card result">
+    <div class="kpi-line"><span class="k">Bruttomietrendite</span><span class="v">${fmtPct(r.bruttoRendite)} <span class="dot ${aBrutto}"></span></span></div>
+    <div class="kpi-line"><span class="k">Kaufpreisfaktor</span><span class="v">${r.faktor?r.faktor.toLocaleString('de-DE',{maximumFractionDigits:1}):'—'} <span class="dot ${aFaktor}"></span></span></div>
+    <div class="kpi-line"><span class="k">Kaufpreis/m²</span><span class="v">${fmtEUR(r.preisProM2?Math.round(r.preisProM2):null)}</span></div>
+    <div class="hint" style="margin-top:10px">Bruttomietrendite: Jahresmiete ÷ Kaufpreis. Unter 4 % ist nach Abzug aller Kosten meist kein Gewinn möglich.</div>
+    <div class="hint">Kaufpreisfaktor: Wie viele Jahreskaltmieten das Objekt kostet. Unter 20 günstig, bis 25 akzeptabel, über 30 teuer.</div>
+  </div>`;
+}
+
+/* ---------- STEP 4 : Finanzierung ---------- */
+STEP_RENDER[4] = ()=>{
+  const i=current.inputs, r=calc(i);
+  const ekVal = (i.eigenkapital==null||i.eigenkapital==='') ? '' : i.eigenkapital;
+  return `<div class="card">
+    <h2>Finanzierung</h2>
+    <div class="field"><label>Eigenkapital</label>
+      <div class="suffix-wrap">
+        <input class="input" type="number" inputmode="decimal" data-num="eigenkapital" value="${ekVal}" placeholder="${Math.round(r.ekAuto)}">
+        <span class="suffix">€</span>
+      </div>
+      <div class="hint">Vorschlag: ${fmtEUR(Math.round(r.ekAuto))} (20 % der Gesamtinvestition). Überschreibbar.</div>
+    </div>
+    ${numField('Sollzins','sollzins','%')}
+    <div class="field"><label>Zinsbindung</label>
+      <select class="input" data-sel="zinsbindung">
+        ${[5,10,15,20].map(y=>`<option value="${y}" ${y==i.zinsbindung?'selected':''}>${y} Jahre</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>Anfängliche Tilgung</label>
+      <div class="range-row">
+        <input type="range" min="1" max="4" step="0.5" data-range="tilgung" value="${i.tilgung}">
+        <span class="range-val" id="tilgVal">${fmtPct(i.tilgung,1)}</span>
+      </div>
+    </div>
+    <div id="finResult"></div>
+  </div>`;
+};
+STEP_BIND[4] = ()=>{
+  bindNums();
+  document.querySelector('[data-sel=zinsbindung]').addEventListener('change',e=>{update('zinsbindung',+e.target.value);renderFin();});
+  const rng=document.querySelector('[data-range=tilgung]');
+  rng.addEventListener('input',e=>{ current.inputs.tilgung=+e.target.value; document.getElementById('tilgVal').textContent=fmtPct(+e.target.value,1); save(); renderFin(); });
+  onInputChange=renderFin;
+  renderFin();
+};
+function renderFin(){
+  const i=current.inputs, r=calc(i);
+  const aLtv = amp(r.ltv, v=>v<=60, v=>v<=80);
+  const out=document.getElementById('finResult');
+  out.innerHTML=`<div class="card result" style="margin-top:8px">
+    <table>
+      <tr><td>Darlehensbetrag</td><td class="num">${fmtEUR(r.darlehen)}</td></tr>
+      <tr><td>Beleihungsauslauf (LTV) <span class="dot ${aLtv}"></span></td><td class="num">${fmtPct(r.ltv,0)}</td></tr>
+      <tr><td>Monatliche Rate</td><td class="num">${fmtEUR(r.rateMonat)}</td></tr>
+      <tr class="sub"><td>davon Zins</td><td class="num">${fmtEUR(r.zinsMonat1)}</td></tr>
+      <tr class="sub"><td>davon Tilgung</td><td class="num">${fmtEUR(r.tilgMonat1)}</td></tr>
+      <tr><td>Restschuld nach ${i.zinsbindung} J.</td><td class="num">${fmtEUR(r.restschuld)}</td></tr>
+    </table>
+  </div>
+  <div class="card result">
+    <h3>Anschlussfinanzierung bei Zinsbindungsende</h3>
+    <p class="muted" style="margin-top:0">Restschuld ca. ${fmtEUR(r.restschuld)}</p>
+    <table>
+      ${r.szenarien.map(s=>`<tr><td>Zins ${fmtPct(s.zins,2)}</td><td class="num">Rate ${fmtEUR(s.rate)}/Monat</td></tr>`).join('')}
+    </table>
+  </div>
+  ${r.ltv>80?`<div class="note warn">Über 80 % Beleihung erhöht den Zinssatz spürbar. Empfehlung: mind. 20 % Eigenkapital plus Kaufnebenkosten einbringen.</div>`:''}`;
+}
+
+/* ---------- STEP 5 : Laufende Kosten & Steuern ---------- */
+STEP_RENDER[5] = ()=>{
+  const i=current.inputs, r=calc(i);
+  const instVal = (i.instandhaltung==null||i.instandhaltung==='')?'':i.instandhaltung;
+  return `<div class="card">
+    <h2>Laufende Kosten</h2>
+    ${numField('Hausverwaltung (€/Monat)','hausverwaltung','€')}
+    <div class="field"><label>Instandhaltung – eigener Anteil (€/Monat)</label>
+      <div class="suffix-wrap">
+        <input class="input" type="number" inputmode="decimal" data-num="instandhaltung" value="${instVal}" placeholder="${Math.round(r.instandhaltungAuto)}">
+        <span class="suffix">€</span>
+      </div>
+      <div class="hint">Geschätzter Eigenanteil (Peterssche Formel): ~${Math.round(r.instandhaltungAuto)} €/Monat. Überschreibbar.</div>
+    </div>
+    ${numField('Mietausfallwagnis','mietausfallProzent','%','% der Jahreskaltmiete')}
+    ${numField('Nicht umlagefähige Nebenkosten','nichtUmlagefaehigProzent','%','% der Jahreskaltmiete')}
+    ${numField('WEG-Erhaltungsrücklage','wegRuecklage','€/m²/Mon.')}
+    <div id="wegHint"></div>
+  </div>
+  <div class="card">
+    <h2>Steuern</h2>
+    <div class="field"><label>Grenzsteuersatz</label>
+      <select class="input" data-sel="grenzsteuersatz">
+        ${[25,30,35,42,45].map(s=>`<option value="${s}" ${s==i.grenzsteuersatz?'selected':''}>${s} %</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>Gebäudeanteil am Kaufpreis</label>
+      <div class="range-row">
+        <input type="range" min="50" max="90" step="1" data-range="gebaeudeanteil" value="${i.gebaeudeanteil}">
+        <span class="range-val" id="gebVal">${i.gebaeudeanteil} %</span>
+      </div>
+      <div class="hint">Nur der Gebäudeanteil wird abgeschrieben – nicht der Grundstückspreis. Richtwert 60–80 %. Genaue Aufteilung legt der Steuerberater fest.</div>
+    </div>
+    <div id="steuerResult"></div>
+  </div>`;
+};
+STEP_BIND[5] = ()=>{
+  bindNums();
+  document.querySelector('[data-sel=grenzsteuersatz]').addEventListener('change',e=>{update('grenzsteuersatz',+e.target.value);renderSteuer();});
+  const rng=document.querySelector('[data-range=gebaeudeanteil]');
+  rng.addEventListener('input',e=>{current.inputs.gebaeudeanteil=+e.target.value;document.getElementById('gebVal').textContent=e.target.value+' %';save();renderSteuer();});
+  onInputChange=renderSteuer;
+  renderSteuer();
+};
+function renderSteuer(){
+  const i=current.inputs, r=calc(i);
+  document.getElementById('wegHint').innerHTML = (i.weg && (+i.wegRuecklage||0) < 1.00)
+    ? `<div class="note warn">Deine WEG-Rücklage liegt unter dem Richtwert von 1,00 €/m²/Monat. Fordere die Protokolle der Eigentümerversammlung der letzten 3 Jahre an und prüfe, ob größere Sanierungen anstehen.</div>` : '';
+  const ersparnis = r.steuerEffektJahr>=0;
+  document.getElementById('steuerResult').innerHTML = `<div class="result card" style="margin-top:8px">
+    <table>
+      <tr><td>AfA-Betrag/Jahr (${fmtPct(r.afaSatz*100,1)} von ${fmtEUR(r.afaBasis)})</td><td class="num">${fmtEUR(r.afaJahr)}</td></tr>
+      <tr><td>Zinsen/Jahr</td><td class="num">${fmtEUR(r.zinsenJahr1)}</td></tr>
+      <tr><td>Bewirtschaftungskosten/Jahr</td><td class="num">${fmtEUR(r.bewirtschaftungJahr)}</td></tr>
+      <tr class="total"><td>Werbungskosten gesamt</td><td class="num">${fmtEUR(r.werbungskostenJahr)}</td></tr>
+      <tr class="total"><td>${ersparnis?'Steuerersparnis/Jahr':'Steuerlast/Jahr'}</td><td class="num">${fmtEUR(Math.abs(r.steuerEffektJahr))}</td></tr>
+      <tr class="sub"><td>${ersparnis?'Steuerersparnis/Monat':'Steuerlast/Monat'}</td><td class="num">${fmtEUR(Math.abs(r.steuerEffektMonat))}</td></tr>
+    </table>
+  </div>
+  <div class="note info">Steuerersparnis entsteht, weil du anfangs einen steuerlichen Verlust machst (Miete minus Werbungskosten). Sie setzt ausreichend andere Einkünfte voraus. Für deine konkrete Situation: Steuerberater fragen.</div>`;
+}
+
+/* ---------- STEP 6 : Auswertung ---------- */
+STEP_RENDER[6] = ()=> `<div id="evalRoot"></div>`;
+STEP_BIND[6] = ()=> renderEval();
+
+function renderEval(){
+  const i=current.inputs, r=calc(i);
+  if(!(i.kaufpreis>0 && i.kaltmiete>0)){
+    document.getElementById('evalRoot').innerHTML='<div class="card empty">Bitte zuerst Kaufpreis (Schritt 1) und Kaltmiete (Schritt 3) ausfüllen.</div>';
+    return;
+  }
+  const miete=+i.kaltmiete;
+  const cfSteuer = r.steuerEffektMonat;
+
+  // Kennzahlen
+  const aBrutto=amp(r.bruttoRendite,v=>v>=5,v=>v>=4);
+  const aNetto =amp(r.nettoRendite,v=>v>=4,v=>v>=3);
+  const aFaktor=amp(r.faktor,v=>v<20,v=>v<25);
+  const aEk    =amp(r.ekRendite,v=>v>r.zins*100,v=>v>r.zins*100-1);
+  const aLtv   =amp(r.ltv,v=>v<=60,v=>v<=80);
+  const aCf    =amp(r.cashflowNachSteuerMonat,v=>v>=0,v=>v>=-100);
+  const aObj   =r.bruttoRendite>r.zins*100?'g':(r.bruttoRendite>r.zins*100-0.5?'y':'r');
+
+  const kennz=[
+    ['Bruttomietrendite',fmtPct(r.bruttoRendite),aBrutto,'≥5 % 🟢 · ≥4 % 🟡 · <4 % 🔴'],
+    ['Nettomietrendite',fmtPct(r.nettoRendite),aNetto,'≥4 % 🟢 · ≥3 % 🟡 · <3 % 🔴'],
+    ['Kaufpreisfaktor',r.faktor.toLocaleString('de-DE',{maximumFractionDigits:1}),aFaktor,'<20 🟢 · <25 🟡 · ≥25 🔴'],
+    ['Eigenkapitalrendite',fmtPct(r.ekRendite),aEk,'> Zinssatz 🟢 · nahe Zinssatz 🟡'],
+    ['Beleihungsauslauf',fmtPct(r.ltv,0),aLtv,'≤60 % 🟢 · ≤80 % 🟡 · >80 % 🔴'],
+    ['Cashflow nach Steuern',fmtEUR(r.cashflowNachSteuerMonat)+'/Mon.',aCf,'positiv 🟢 · leicht neg. 🟡 · dauerhaft neg. 🔴'],
+    ['Objektrendite vs. Zins',fmtPct(r.bruttoRendite)+' vs. '+fmtPct(r.zins*100),aObj,'Rendite > Zins 🟢']
+  ];
+
+  // Risikokarten
+  const cards = riskCards(i,r);
+  const reds = cards.filter(c=>c.amp==='r').length;
+  const yellows = cards.filter(c=>c.amp==='y').length;
+
+  document.getElementById('evalRoot').innerHTML = `
+  <div class="card">
+    <h2>Cashflow (monatlich)</h2>
+    <div class="result">
+      <table>
+        <tr><td>+ Kaltmiete</td><td class="num">${fmtEUR(miete)}</td></tr>
+        <tr><td>− Rate (Zins + Tilgung)</td><td class="num">−${fmtEUR(r.rateMonat)}</td></tr>
+        <tr><td>− Hausverwaltung</td><td class="num">−${fmtEUR(r.hausverwaltung)}</td></tr>
+        <tr><td>− Instandhaltung (eigener Anteil)</td><td class="num">−${fmtEUR(r.instandhaltung)}</td></tr>
+        <tr><td>− Mietausfallwagnis (${i.mietausfallProzent} %)</td><td class="num">−${fmtEUR(r.mietausfall)}</td></tr>
+        <tr><td>− Nicht umlagefähige NK (${i.nichtUmlagefaehigProzent} %)</td><td class="num">−${fmtEUR(r.nichtUmlagefaehig)}</td></tr>
+        <tr class="total"><td>Cashflow vor Steuern</td><td class="num">${fmtEUR(r.cashflowVorSteuerMonat)}</td></tr>
+        <tr><td>${cfSteuer>=0?'+ Steuerersparnis (geschätzt)':'− Steuerlast (geschätzt)'}</td><td class="num">${cfSteuer>=0?'+':'−'}${fmtEUR(Math.abs(cfSteuer))}</td></tr>
+        <tr class="total"><td>Cashflow nach Steuern (geschätzt)</td><td class="num">${fmtEUR(r.cashflowNachSteuerMonat)}</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Kennzahlen</h2>
+    ${kennz.map(k=>`<div class="kpi-line"><span class="k">${k[0]}<div class="hint" style="font-weight:400">${k[3]}</div></span><span class="v">${k[1]} <span class="dot ${k[2]}"></span></span></div>`).join('')}
+  </div>
+
+  <div class="card">
+    <h2>Risikoampel</h2>
+    <p class="muted" style="margin-top:0">${reds} rot · ${yellows} gelb · ${cards.length-reds-yellows} grün. Tippe eine Karte für Details.</p>
+    ${vetoCheck(i,r) ? `<div class="note red"><b>Veto-Signal:</b> Kaufpreisfaktor über 28 in Kombination mit LTV über 90 % und Mietgarantie durch den Verkäufer. Dieses Objekt ist unabhängig von allen anderen Werten als hochriskant einzustufen.</div>`:''}
+    <div class="risk-grid">
+      ${cards.map((c,idx)=>`<details class="risk ${c.amp}" ${idx===9?'':''}>
+        <summary><span class="rtitle"><span class="dot ${c.amp}"></span> ${c.titel}</span><span class="rval">${c.wert}</span></summary>
+        <div class="rbody">${c.text}${c.extra||''}</div>
+      </details>`).join('')}
+    </div>
+  </div>
+
+  <div class="card no-print">
+    <h2>Nächste Schritte</h2>
+    <p class="muted">Wechsle in die <b>Projekt-Checkliste</b>, um den gesamten Lebenszyklus (Due Diligence, Kauf, Vermietung …) Schritt für Schritt abzuhaken.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn secondary" onclick="switchTab('checklist')">Zur Checkliste</button>
+      <button class="btn secondary" onclick="window.print()">Drucken / als PDF</button>
+    </div>
+  </div>`;
+
+  // Anbieter-Check Bindings (innerhalb Karte 10)
+  document.querySelectorAll('[data-ab]').forEach(cb=>{
+    cb.onchange=()=>{
+      current.inputs.anbieterCheck[+cb.dataset.ab]=cb.checked; save(); renderEval();
+    };
+  });
+}
+
+function riskCards(i,r){
+  const cards=[];
+  cards.push({titel:'1 · Nettomietrendite', wert:fmtPct(r.nettoRendite),
+    amp:amp(r.nettoRendite,v=>v>=4,v=>v>=3),
+    text:'Jahresreinertrag im Verhältnis zur Gesamtinvestition. Unter 3 % bleibt nach Kosten kaum Spielraum.'});
+  cards.push({titel:'2 · Kaufpreisfaktor', wert:r.faktor.toLocaleString('de-DE',{maximumFractionDigits:1}),
+    amp:amp(r.faktor,v=>v<25,v=>v<28),
+    text:'Jahreskaltmieten bis zum Kaufpreis. Ab 28 (rot) ist das Objekt im Verhältnis zur Miete teuer.'});
+  cards.push({titel:'3 · Cashflow ohne Steuereffekt', wert:fmtEUR(r.cashflowVorSteuerMonat)+'/Mon.',
+    amp:amp(r.cashflowVorSteuerMonat,v=>v>=0,v=>v>=-150),
+    text:'Trägt sich das Objekt auch ohne den Steuervorteil? Dauerhaft negativ = Zuschuss aus eigener Tasche nötig.'});
+  cards.push({titel:'4 · Objektrendite vs. Kreditzins', wert:fmtPct(r.bruttoRendite)+' vs. '+fmtPct(r.zins*100),
+    amp:r.bruttoRendite>r.zins*100?'g':(r.bruttoRendite>r.zins*100-0.5?'y':'r'),
+    text:'Liegt die Mietrendite unter dem Kreditzins, arbeitet die Finanzierung gegen dich (negativer Hebel).'});
+  cards.push({titel:'5 · Beleihungsauslauf (LTV)', wert:fmtPct(r.ltv,0),
+    amp:amp(r.ltv,v=>v<=60,v=>v<=80),
+    text:'Anteil des Darlehens am Objektwert. Über 80 % verteuert den Zins; über 60 % gilt als solide.'});
+  const wegOk = !i.weg ? null : (+i.wegRuecklage||0);
+  cards.push({titel:'6 · WEG-Erhaltungsrücklage', wert: i.weg?fmtEUR2(i.wegRuecklage)+'/m²':'keine WEG',
+    amp: !i.weg?'g':amp(+i.wegRuecklage,v=>v>=1.0,v=>v>=0.8),
+    text: i.weg?'Unter 0,80 €/m²/Monat droht eine Sonderumlage bei der nächsten größeren Sanierung. Protokolle prüfen.':'Kein Wohnungseigentum – keine gemeinsame Rücklage relevant.'});
+  const eMap={A:'g',B:'g',C:'g',D:'y',E:'y',F:'r',G:'r'};
+  cards.push({titel:'7 · Energieklasse', wert:i.energieklasse,
+    amp:eMap[i.energieklasse]||'y',
+    text:'F oder G bedeuten hohen Sanierungsdruck (EPBD) und mögliche Pflichtmaßnahmen. D/E sind grenzwertig.'});
+  // 8 Zinsänderungsrisiko: Rate-Anstieg +2pp Szenario vs. heutige Rate
+  const rateNeu = r.szenarien[2].rate; const anstieg = r.rateMonat>0 ? (rateNeu-r.rateMonat)/r.rateMonat*100 : 0;
+  cards.push({titel:'8 · Zinsänderungsrisiko Anschluss', wert:'+'+fmtPct(anstieg,0),
+    amp:amp(anstieg,v=>v<=10,v=>v<=20),
+    text:'Steigt der Zins zum Ende der Bindung um 2 Prozentpunkte, ändert sich die Rate so stark. Über 20 % gilt als kritisch.'});
+  // 9 Mietpreisbremse + Miete am Limit
+  cards.push({titel:'9 · Mietpreisbremse', wert: i.mietpreisbremse==='ja'?'aktiv':(i.mietpreisbremse==='nein'?'inaktiv':'prüfen'),
+    amp: i.mietpreisbremse==='ja'?'r':(i.mietpreisbremse==='unbekannt'?'y':'g'),
+    text:'Ist die Bremse aktiv und die kalkulierte Miete am oberen Limit, drohen Rückforderungen. Ortsübliche Vergleichsmiete prüfen.'});
+  // 10 Anbieter-Check
+  const checks=[
+    'Ich wurde unaufgefordert kontaktiert',
+    'Es gibt eine Mietgarantie vom Verkäufer',
+    'Finanzierung, Verwaltung und Kauf kommen vom gleichen Anbieter',
+    'Man verspricht mir Steuerersparnis ohne Eigenkapital',
+    'Ich soll schnell entscheiden – „nur noch wenige verfügbar"',
+    'Notartermin mit weniger als 14 Tagen Vorlauf'
+  ];
+  const haken = i.anbieterCheck.filter(Boolean).length;
+  const abExtra = `<div style="margin-top:10px">${checks.map((c,idx)=>
+    `<label class="check"><input type="checkbox" data-ab="${idx}" ${i.anbieterCheck[idx]?'checked':''}><span>${c}</span></label>`).join('')}
+    ${haken>=2?`<div class="note red" style="margin-top:8px">Mehrere Merkmale eines unseriösen Angebots treffen zu. Lass den Kaufpreis durch einen unabhängigen Gutachter prüfen (500–1.500 €) und vergleiche mit den Werten des Gutachterausschusses deiner Region.</div>`:''}</div>`;
+  cards.push({titel:'10 · Anbieter-Warnsignale', wert:haken+' / 6',
+    amp: haken>=2?'r':(haken===1?'y':'g'),
+    text:'Beantworte die Checkliste selbst. Ab 2 Treffern: rote Karte und Gutachter empfohlen.',
+    extra:abExtra});
+  return cards;
+}
+
+function vetoCheck(i,r){
+  return (r.faktor>28) && (r.ltv>90) && i.anbieterCheck[1];
+}
+
+/* =========================================================================
+   LEBENSZYKLUS-CHECKLISTE
+   ========================================================================= */
+const CHECKLIST = [
+  {key:'meta', title:'Projektverwaltung', items:[
+    ['p','Projekt anlegen','Name, Notiz, Datum – jedes Projekt ist eine eigene Instanz der Checkliste.'],
+    ['p','Projekte-Übersicht','Dashboard mit Name, Phase, Ampelstatus, letztem Update.'],
+    ['p','Projekt speichern (localStorage)','Alle Eingaben und Status werden im Browser gespeichert und wiederhergestellt.'],
+    ['p','Projekt duplizieren / Szenario-Klon','Bestehendes Projekt kopieren, um Szenarien zu vergleichen.'],
+    ['o','Projekt-Zusammenfassung','Eckdaten, Ampelstatus, offene Pflichtpunkte, nächster Schritt.'],
+    ['o','Projekt exportieren / drucken','Print-Stylesheet: Zusammenfassung + Kennzahlen als A4-Ausdruck.'],
+    ['o','Projekt archivieren / löschen','Abgeschlossene oder verworfene Projekte ausblenden.']
+  ]},
+  {key:'p1', title:'Phase 1 – Vorbereitung & Suchkriterien', items:[
+    ['p','Eigenkapital erfassen','Reserviert für Nebenkosten, Liquiditätspuffer (≥3 Monatsmieten), investierbar.'],
+    ['p','Finanzierungsrahmen klären','Maximaler Kaufpreis ableiten (Annuität ≤ 35 % des Nettoeinkommens).'],
+    ['p','Zielregion festlegen','Bundesland, Teilregion, Stadt/Land – entscheidet über GrESt und Mietpreisbremse.'],
+    ['p','Renditeziel definieren','Mindest-Nettomietrendite (≥ 3,5 %, konservativ ≥ 4 %).'],
+    ['o','Steuersituation grob einschätzen','Grenzsteuersatz schätzen; ggf. Steuerberater.'],
+    ['o','Anbieter-Check aktivieren','6-Punkte-Warnsignal-Checkliste bei jedem Objekt.'],
+    ['o','Förderprogramme prüfen','KfW 261, L-Bank BW, LfA Bayern.']
+  ]},
+  {key:'p2', title:'Phase 2 – Objektsuche & Erstbewertung', items:[
+    ['p','Kaufpreis & Fläche eingeben','Wizard Schritt 1.'],
+    ['p','Kaufpreis/m² gegen Benchmark','Automatische Ampel gegen Regionsspannen.'],
+    ['p','Bruttomietrendite & Faktor','Wizard Schritt 3.'],
+    ['p','Anbieter-Warnsignal-Check','6-Punkte-Checkliste, ab 2 Treffern Gutachter.'],
+    ['o','Objekt-Vergleich','Zwei Projekte parallel vergleichen (Klon-Funktion).'],
+    ['o','Mietspiegelwert eintragen','Ortsübliche Vergleichsmiete als Referenz.']
+  ]},
+  {key:'p3', title:'Phase 3 – Tiefenprüfung (Due Diligence)', items:[
+    ['p','Kaufnebenkosten berechnen','Wizard Schritt 2.'],
+    ['p','Finanzierung durchrechnen','Wizard Schritt 4.'],
+    ['p','Laufende Kosten & Steuer','Wizard Schritt 5.'],
+    ['p','Cashflow & Risikoampel','Wizard Schritt 6.'],
+    ['p','WEG-Unterlagen prüfen (wenn WEG)','Protokolle 3 Jahre, Beschlusssammlung, Wirtschaftsplan, Rücklage.'],
+    ['p','Energieausweis vorhanden?','Pflicht bei Kauf. Effizienzklasse eingetragen?'],
+    ['o','Bausachverständigen beauftragen','Empfohlen bei Baujahr <1980 oder Klasse F/G (500–1.500 €).'],
+    ['o','Gutachterausschuss-Wert prüfen','Kaufpreis gegen Bodenrichtwert / BORIS.'],
+    ['o','Grundbuchauszug prüfen','Abt. I–III.'],
+    ['o','Mietvertrag/Mieter prüfen','Laufende Verträge, Indexierung, Kündigungsfristen.'],
+    ['o','Fördermittelcheck konkret','KfW-Förderfähigkeit, L-Bank/LfA.']
+  ]},
+  {key:'p4', title:'Phase 4 – Kaufvorbereitung & Vertragsabschluss', items:[
+    ['p','Finanzierungszusage vorhanden','Schriftliche Zusage vor Unterschrift.'],
+    ['p','Kaufvertragsentwurf ≥14 Tage vorher','Vom Notar rechtzeitig erhalten?'],
+    ['p','Inventar separat ausgewiesen','Einbauküche etc. → reduziert GrESt-Basis.'],
+    ['p','Kaufpreis final aktualisiert','Bei Verhandlung: alle Berechnungen neu.'],
+    ['o','Notarkosten-Szenario','Kostenrechnung mit Tool-Schätzung vergleichen.'],
+    ['o','Übergabeprotokoll-Checkliste','Zählerstände, Mängel, Schlüssel.']
+  ]},
+  {key:'p5', title:'Phase 5 – Grundbuch & Eigentumsübergang', items:[
+    ['p','Auflassungsvormerkung eingetragen','Sicherung vor Weiterverkauf.'],
+    ['p','Grunderwerbsteuer bezahlt','Fällig ~4 Wochen nach Bescheid.'],
+    ['p','Grundbucheintragung erfolgt','Eigentumsübergang vollzogen.'],
+    ['o','Grundschuld eingetragen','Rangstelle bestätigt.'],
+    ['o','Versicherungen umschreiben','Wohngebäude, Haftpflicht.']
+  ]},
+  {key:'p6', title:'Phase 6 – Sanierung & Ersteinrichtung', items:[
+    ['p','15-%-Grenze prüfen','Renovierung in 3 Jahren < 15 % der Gebäudekosten (Aktivierung vs. Sofortabzug).'],
+    ['o','Sanierungskosten-Szenario','Sofort absetzbar vs. aktivierungspflichtig vs. AfA.'],
+    ['o','Energetische Sanierung','Maßnahmen, Kosten-Nutzen, KfW 261/BAFA.'],
+    ['o','Mehrjahres-Simulation','Cashflow über 10/20 Jahre, Mietsteigerung, Wertsteigerung.']
+  ]},
+  {key:'p7', title:'Phase 7 – Vermietung & laufender Betrieb', items:[
+    ['p','Mietvertrag aufgesetzt','Mietart, Kaltmiete, NK-Vorauszahlung.'],
+    ['p','Mietpreisbremse geprüft','Gemeinde in Gebietskulisse? Miete innerhalb Grenze?'],
+    ['p','Bonitätsprüfung Mieter','Schufa, Einkommensnachweis, Selbstauskunft.'],
+    ['p','Hausverwaltung geregelt','WEG-/Mietverwaltung, Kosten im Tool aktualisiert.'],
+    ['o','Cashflow laufend aktualisieren','Ist- gegen Plan-Werte.'],
+    ['o','Steuerliche Jahresauswertung','Werbungskosten-Übersicht, exportierbar.'],
+    ['o','Mietanpassung kalkulieren','Index-/Staffelmiete, Bremse, Cashflow neu.'],
+    ['o','Leerstandsmanagement','Leerstand → Jahres-Cashflow neu.']
+  ]},
+  {key:'p8', title:'Phase 8 – Anschlussfinanzierung & Refinanzierung', items:[
+    ['p','Restschuld & Zinsbindungsende im Blick','12 Monate vorher Angebote einholen.'],
+    ['p','Anschlussfinanzierung durchrechnen','Neue Annuität, Cashflow, Ampel.'],
+    ['o','Forward-Darlehen-Szenario','Zins heute sichern – Kosten vs. Risiko.'],
+    ['o','Sondertilgungsoptionen','Wirkung auf Restschuld und Cashflow.']
+  ]},
+  {key:'p9', title:'Phase 9 – Verkauf oder Weitergabe', items:[
+    ['p','Spekulationsfrist prüfen','10-Jahres-Frist abgelaufen? Steuerfreier Verkauf?'],
+    ['p','3-Objekt-Grenze prüfen','Ab 3 Verkäufen in 5 Jahren → gewerblicher Handel.'],
+    ['o','Verkaufserlös-Szenario','Gewinn nach AfA-Rückrechnung, Steuer.'],
+    ['o','Gesamtrendite-Rückblick','Annualisierte Rendite über Haltedauer.']
+  ]}
+];
+const ART_LABEL={p:'Pflicht',o:'Optional'};
+const STATUS_ORDER=['open','progress','done','skipped'];
+const STATUS_SYM={open:'[ ]',progress:'[~] in Arbeit',done:'[x] erledigt',skipped:'[–] übersprungen'};
+
+function getStatus(phaseKey,idx){
+  return (current.checklist[phaseKey+'.'+idx]) || 'open';
+}
+function setStatus(phaseKey,idx,s){
+  current.checklist[phaseKey+'.'+idx]=s; save();
+}
+
+function checklistRisk(){
+  // übersprungene Pflichtpunkte erhöhen Risiko
+  let skippedPflicht=0, offenePflicht=0, total=0, done=0;
+  CHECKLIST.forEach(ph=>ph.items.forEach((it,idx)=>{
+    total++;
+    const s=getStatus(ph.key,idx);
+    if(s==='done')done++;
+    if(it[0]==='p'){
+      if(s==='skipped')skippedPflicht++;
+      if(s==='open')offenePflicht++;
+    }
+  }));
+  let amp='g';
+  if(skippedPflicht>=1) amp='r';
+  else if(offenePflicht>3) amp='y';
+  return {amp,skippedPflicht,offenePflicht,total,done};
+}
+
+function renderChecklist(){
+  const root=document.getElementById('tab-checklist');
+  const risk=checklistRisk();
+  root.innerHTML=`
+  <div class="card">
+    <h2>Projekt-Checkliste</h2>
+    <p class="muted">Der gesamte Lebenszyklus. Übersprungene <b>Pflichtpunkte</b> erhöhen das Risiko des Projekts.</p>
+    <div class="kpi-line"><span class="k">Fortschritt</span><span class="v">${risk.done} / ${risk.total} erledigt</span></div>
+    <div class="kpi-line"><span class="k">Status-Ampel</span><span class="v"><span class="pill ${risk.amp}">${risk.amp==='g'?'auf Kurs':risk.amp==='y'?'offene Pflichtpunkte':'übersprungene Pflicht'}</span></span></div>
+    ${risk.skippedPflicht?`<div class="note warn" style="margin-top:8px">${risk.skippedPflicht} übersprungene(r) Pflichtpunkt(e) – das Gesamtrisiko ist erhöht.</div>`:''}
+  </div>
+  ${CHECKLIST.map(ph=>{
+    const stats=ph.items.map((it,idx)=>getStatus(ph.key,idx));
+    const dn=stats.filter(s=>s==='done').length;
+    return `<details class="card phase" ${ph.key==='meta'?'open':''}>
+      <summary>${ph.title} <span class="muted" style="font-weight:400;margin-left:auto">${dn}/${ph.items.length}</span></summary>
+      ${ph.items.map((it,idx)=>{
+        const s=getStatus(ph.key,idx);
+        return `<div class="cl-item">
+          <span class="art ${it[0]==='p'?'pflicht':'optional'}">${ART_LABEL[it[0]]}</span>
+          <div class="cl-main">
+            <div style="font-weight:600">${it[1]}</div>
+            <div class="cl-desc">${it[2]}</div>
+            <div class="status-btns" data-ph="${ph.key}" data-idx="${idx}">
+              ${STATUS_ORDER.map(st=>`<button data-s="${st}" class="${s===st?'on':''}">${STATUS_SYM[st]}</button>`).join('')}
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </details>`;
+  }).join('')}`;
+
+  root.querySelectorAll('.status-btns').forEach(grp=>{
+    grp.querySelectorAll('button').forEach(b=>{
+      b.onclick=()=>{ setStatus(grp.dataset.ph,+grp.dataset.idx,b.dataset.s); renderChecklist(); };
+    });
+  });
+}
+
+/* =========================================================================
+   INIT
+   ========================================================================= */
+document.getElementById('btnNewProject').onclick=()=>{
+  const p=createProject('Objekt '+(loadAll().length+1));
+  openProject(p.id);
+};
+document.getElementById('btnBackDash').onclick=()=>{ renderDashboard(); showDashboard(); };
+document.querySelectorAll('#mainTabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
+document.getElementById('btnPrev').onclick=()=>{ if(stepIndex>0){stepIndex--;save();renderWizard();window.scrollTo(0,0);} };
+document.getElementById('btnNext').onclick=()=>{
+  if(stepIndex<6){ stepIndex++; save(); renderWizard(); window.scrollTo(0,0); }
+  else { switchTab('checklist'); }
+};
+
+showDashboard();
+</script>
+</body>
+</html>
