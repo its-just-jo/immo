@@ -1,7 +1,7 @@
 # Immobilien-Kalkulator
 
-Ein schrittweiser Kalkulator, der Einsteiger durch die Bewertung eines Vermietungsobjekts
-führt (Bodenseeregion, Bayern, Baden-Württemberg).
+Ein schrittweiser Kalkulator, der  durch die Bewertung eines Vermietungsobjekts
+führt.
 
 - **Eine Datei, keine Abhängigkeiten:** `index.html` per Doppelklick im Browser öffnen.
   Kein Server, kein Build, kein `npm install`. Funktioniert offline und auf dem iPhone.
