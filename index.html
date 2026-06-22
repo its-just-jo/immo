@@ -142,6 +142,18 @@ input,select{font-family:inherit;font-size:1rem}
 .tabs button{border:1px solid var(--line);background:#fff;border-radius:99px;padding:7px 14px;font-size:.9rem}
 .tabs button.active{background:var(--ink);color:#fff;border-color:var(--ink)}
 
+/* ---------- Live-Daten Indikatoren ---------- */
+.badges{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:.78rem;font-weight:600;padding:3px 10px;border-radius:99px;border:1px solid var(--line);background:#fff;color:var(--muted)}
+.badge.on{background:var(--green-bg);border-color:#bbf7d0;color:var(--green)}
+.badge.off{background:#f1f5f9;color:#64748b}
+.badge.exp{background:var(--yellow-bg);border-color:#fde68a;color:var(--yellow)}
+.spin{display:inline-block;width:15px;height:15px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:99px;animation:spin .7s linear infinite;vertical-align:-2px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.keyrow{display:flex;gap:8px;align-items:center}
+.keyrow .input{flex:1}
+.subtle-link{background:none;border:0;color:var(--accent);cursor:pointer;font-size:.85rem;padding:0;text-decoration:underline}
+
 .hidden{display:none !important}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media(max-width:520px){.row2{grid-template-columns:1fr}}
@@ -171,6 +183,7 @@ input,select{font-family:inherit;font-size:1rem}
       <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn" id="btnNewProject">+ Neues Projekt</button>
         <button class="btn secondary" id="btnCompare">Objekte vergleichen</button>
+        <button class="btn secondary" id="btnSettings">⚙︎ Einstellungen</button>
       </div>
     </div>
     <div id="projList" class="proj-list"></div>
@@ -218,6 +231,15 @@ input,select{font-family:inherit;font-size:1rem}
     <div id="compareResult"></div>
   </section>
 
+  <!-- ============ EINSTELLUNGEN ============ -->
+  <section id="view-settings" class="hidden">
+    <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+      <button class="btn ghost" id="btnSettingsBack">← Übersicht</button>
+      <div style="font-weight:700">Einstellungen · Externe Datenquellen</div>
+    </div>
+    <div id="settingsBody"></div>
+  </section>
+
 </div>
 
 <script>
@@ -256,7 +278,24 @@ const CFG = {
     allgaeu:         {label:'Allgäu',           min:3000, max:4600},
     sonstige:        {label:'Sonstige / unbekannt', min:null, max:null}
   },
-  baujahrLabel: { vor1925:'Vor 1925', mittel:'1925–2022', ab2023:'Ab 2023', denkmal:'Denkmal' }
+  baujahrLabel: { vor1925:'Vor 1925', mittel:'1925–2022', ab2023:'Ab 2023', denkmal:'Denkmal' },
+
+  /* ----- Externe Datenquellen (optional, Graceful Degradation) ----- */
+  api: {
+    opencageUrl: 'https://api.opencagedata.com/geocode/v1/json',
+    overpassUrl: 'https://overpass-api.de/api/interpreter',
+    // Destatis GENESIS REST-API (experimentell – CORS im Browser nicht garantiert)
+    destatisUrl: 'https://www-genesis.destatis.de/genesisWS/rest/2020',
+    timeoutMs: 12000,
+    cacheTtlTage: 30,
+    osmRadiusDefault: 800
+  },
+  // POI-Kategorien für die Mikrolage (Overpass-Filter + Gewicht im Score)
+  poiKategorien: {
+    supermarkt: { label:'Supermärkte', filter:'nwr["shop"~"supermarket|convenience"]', gewicht:35, saturierung:3 },
+    oepnv:      { label:'ÖPNV-Halte',  filter:'node["public_transport"="station"];node["highway"="bus_stop"]', gewicht:35, saturierung:4 },
+    schule:     { label:'Schulen/Kitas', filter:'nwr["amenity"~"school|kindergarten"]', gewicht:30, saturierung:3 }
+  }
 };
 
 /* =========================================================================
@@ -275,7 +314,7 @@ function newId(){ return 'p'+Date.now().toString(36)+Math.random().toString(36).
 function blankInputs(){
   const d = CFG.defaults;
   return {
-    kaufpreis:null, wohnflaeche:null, bundesland:d.bundesland, region:'sonstige',
+    kaufpreis:null, wohnflaeche:null, adresse:'', bundesland:d.bundesland, region:'sonstige',
     baujahr:d.baujahr, energieklasse:d.energieklasse, weg:d.weg,
     maklerVorhanden:d.maklerVorhanden, maklerProzent:d.maklerProzent,
     kaltmiete:null, mietpreisbremse:d.mietpreisbremse,
@@ -285,7 +324,8 @@ function blankInputs(){
     wegRuecklage:d.wegRuecklage,
     grenzsteuersatz:d.grenzsteuersatz, gebaeudeanteil:d.gebaeudeanteil,
     mietsteigerung:d.mietsteigerung, wertsteigerung:d.wertsteigerung,
-    anbieterCheck:[false,false,false,false,false,false]
+    anbieterCheck:[false,false,false,false,false,false],
+    lage:null   // optionales Ergebnis der API-Anreicherung (siehe lageEnrich)
   };
 }
 
@@ -334,6 +374,249 @@ const fmtEUR2 = n => (n==null||isNaN(n)) ? '—' :
 const fmtPct = (n,d=2) => (n==null||isNaN(n)) ? '—' :
   n.toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d}) + ' %';
 const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* =========================================================================
+   EXTERNE DATENQUELLEN  (optional · Graceful Degradation)
+   Reihenfolge des Daten-Flows:  A) OpenCage  →  B) Overpass/OSM  →  C) Destatis
+   Jeder Schritt ist gekapselt: fehlt ein Key oder schlägt der Request fehl,
+   wird er übersprungen und das Tool rechnet unverändert mit den manuellen
+   Eingaben weiter. calc(inp) bleibt rein synchron und kennt keine Netzdaten –
+   die Anreicherung schreibt ihr Ergebnis nur nach inputs.lage.
+   ========================================================================= */
+
+/* ----- Einstellungen (API-Keys, Radius) – eigener Storage-Key ----- */
+const SETTINGS_KEY = 'immo_settings_v1';
+function loadSettings(){
+  try{
+    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
+    return {
+      opencageKey: s.opencageKey || '',
+      destatisKey: s.destatisKey || '',
+      osmRadius:   s.osmRadius   || CFG.api.osmRadiusDefault
+    };
+  }catch(e){
+    return {opencageKey:'', destatisKey:'', osmRadius:CFG.api.osmRadiusDefault};
+  }
+}
+function saveSettings(s){ try{ localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }catch(e){} }
+
+/* ----- Lokaler API-Cache (localStorage, TTL in Tagen) – spart Credits ----- */
+const CACHE_KEY = 'immo_apicache_v1';
+function loadCache(){ try{ return JSON.parse(localStorage.getItem(CACHE_KEY)) || {}; }catch(e){ return {}; } }
+function saveCache(c){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify(c)); }catch(e){} }
+function cacheGet(ns, key){
+  const c = loadCache(); const e = c[ns+':'+key];
+  if(!e) return null;
+  const alterTage = (Date.now() - e.ts) / 86400000;
+  if(alterTage > CFG.api.cacheTtlTage) return null;
+  return e.data;
+}
+function cacheSet(ns, key, data){
+  const c = loadCache(); c[ns+':'+key] = {ts:Date.now(), data}; saveCache(c);
+}
+function clearCache(){ try{ localStorage.removeItem(CACHE_KEY); }catch(e){} }
+function cacheCount(){ return Object.keys(loadCache()).length; }
+
+/* ----- fetch mit Timeout (AbortController) ----- */
+async function fetchJSON(url, opts){
+  const ctrl = new AbortController();
+  const t = setTimeout(()=>ctrl.abort(), CFG.api.timeoutMs);
+  try{
+    const res = await fetch(url, Object.assign({signal:ctrl.signal}, opts||{}));
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    return await res.json();
+  } finally { clearTimeout(t); }
+}
+
+/* ----- Schritt A: Geokodierung (OpenCage) ----- */
+async function apiGeocode(adresse, key){
+  if(!key || !adresse || !adresse.trim()) return null;
+  const norm = adresse.trim().toLowerCase();
+  const cached = cacheGet('geo', norm);
+  if(cached) return Object.assign({_cache:true}, cached);
+  const url = `${CFG.api.opencageUrl}?q=${encodeURIComponent(adresse)}&key=${encodeURIComponent(key)}`
+            + `&language=de&limit=1&countrycode=de&no_annotations=0`;
+  const j = await fetchJSON(url);
+  if(!j || !j.results || !j.results.length) return null;
+  const r = j.results[0], c = r.components || {};
+  const out = {
+    lat: r.geometry.lat, lon: r.geometry.lng,
+    landkreis: c.county || c.city_district || c.city || c.town || c.municipality || c.state_district || '',
+    ort: c.city || c.town || c.village || c.municipality || '',
+    // Amtlicher Regionalschlüssel (für Destatis) – nur wenn OpenCage ihn liefert
+    ags: (r.annotations && r.annotations.DE && r.annotations.DE.regional_key) || '',
+    formatted: r.formatted
+  };
+  cacheSet('geo', norm, out);
+  return out;
+}
+
+/* ----- Schritt B: Mikrolage (Overpass / OpenStreetMap, ohne Key) ----- */
+async function apiOSM(lat, lon, radius){
+  if(lat==null || lon==null) return null;
+  const r = Math.round(radius || CFG.api.osmRadiusDefault);
+  const ckey = lat.toFixed(4)+','+lon.toFixed(4)+',r'+r;
+  const cached = cacheGet('osm', ckey);
+  if(cached) return Object.assign({_cache:true}, cached);
+  // ein gebündelter Query über alle POI-Kategorien (schont den freien Dienst)
+  const parts = [];
+  for(const k in CFG.poiKategorien){
+    CFG.poiKategorien[k].filter.split(';').forEach(f=>{
+      f = f.trim(); if(f) parts.push(`${f}(around:${r},${lat},${lon});`);
+    });
+  }
+  const q = `[out:json][timeout:25];(${parts.join('')});out tags;`;
+  const j = await fetchJSON(CFG.api.overpassUrl, {
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:'data='+encodeURIComponent(q)
+  });
+  if(!j || !j.elements) return null;
+  const counts = {};
+  for(const k in CFG.poiKategorien) counts[k] = 0;
+  j.elements.forEach(el=>{
+    const t = el.tags || {};
+    if(t.shop && /supermarket|convenience/.test(t.shop)) counts.supermarkt++;
+    else if(t.public_transport==='station' || t.highway==='bus_stop') counts.oepnv++;
+    else if(t.amenity && /school|kindergarten/.test(t.amenity)) counts.schule++;
+  });
+  const out = {poi:counts, radius:r};
+  cacheSet('osm', ckey, out);
+  return out;
+}
+
+/* ----- Schritt C: Makrolage/Demografie (Destatis GENESIS, experimentell) -----
+   GENESIS unterstützt CORS im Browser nicht zuverlässig → der Aufruf kann
+   scheitern; das ist eingeplant (Graceful Degradation). Key-Format:
+   "Kennung:Passwort" oder API-Token. Benötigt einen Regionalschlüssel (AGS). */
+async function apiDestatis(ags, key){
+  if(!key || !ags) return null;
+  const cached = cacheGet('destatis', ags);
+  if(cached) return Object.assign({_cache:true}, cached);
+  const [user, pass] = key.includes(':') ? key.split(':') : [key, ''];
+  const params = new URLSearchParams({
+    username:user, password:pass,
+    name:'12411-0015',          // Bevölkerung nach Kreisen (Zeitreihe)
+    area:'all', language:'de',
+    classifyingvariable1:'KREISE', classifyingkey1:ags
+  });
+  const j = await fetchJSON(`${CFG.api.destatisUrl}/data/tablefile?${params.toString()}`);
+  const trend = parseDestatisTrend(j);
+  if(trend==null) return null;
+  const out = {bevTrend:trend, quelle:'Destatis GENESIS 12411'};
+  cacheSet('destatis', ags, out);
+  return out;
+}
+// Sehr defensives Parsing – Tabellenstruktur variiert; bei Unklarheit → null.
+function parseDestatisTrend(j){
+  try{
+    if(!j) return null;
+    const content = j.Object && (j.Object.Content || j.Object.content);
+    if(typeof content !== 'string') return null;
+    const nums = content.replace(/\./g,'').replace(/,/g,'.').match(/-?\d+(\.\d+)?/g);
+    if(!nums) return null;
+    const vals = nums.map(Number).filter(n=>n>1000);   // Einwohnerzahlen
+    if(vals.length < 2) return null;
+    const first = vals[0], last = vals[vals.length-1];
+    if(!first) return null;
+    return (last - first) / first * 100;               // % Veränderung über den Zeitraum
+  }catch(e){ return null; }
+}
+
+/* ----- Mikrolage-Score 0..100 aus POI-Zählung (mit Sättigung) ----- */
+function microScoreFromPOI(poi){
+  if(!poi) return null;
+  let score = 0;
+  for(const k in CFG.poiKategorien){
+    const cat = CFG.poiKategorien[k];
+    const f = Math.min(1, (poi[k]||0) / cat.saturierung);   // 0..1
+    score += f * cat.gewicht;
+  }
+  return Math.round(score);
+}
+
+/* ----- Orchestrator: A → B → C, schreibt inputs.lage, persistiert ----- */
+async function lageEnrich(project, onStatus){
+  const s = loadSettings();
+  const inp = project.inputs;
+  const lage = {
+    lat:null, lon:null, landkreis:'', ags:'', ort:'', formatted:'',
+    poi:null, radius:s.osmRadius, microScore:null, makroTrend:null,
+    quellen:{geo:false, osm:false, destatis:false}, hinweise:[], fetchedAt:Date.now()
+  };
+
+  // A) Geokodierung
+  if(onStatus) onStatus('Geokodierung (OpenCage) …');
+  try{
+    if(s.opencageKey && inp.adresse && inp.adresse.trim()){
+      const g = await apiGeocode(inp.adresse, s.opencageKey);
+      if(g){
+        lage.lat=g.lat; lage.lon=g.lon; lage.landkreis=g.landkreis;
+        lage.ort=g.ort; lage.ags=g.ags||''; lage.formatted=g.formatted;
+        lage.quellen.geo=true;
+      } else lage.hinweise.push('Geokodierung ohne Treffer.');
+    } else if(!s.opencageKey){
+      lage.hinweise.push('Kein OpenCage-Key – Geokodierung übersprungen.');
+    }
+  }catch(e){ lage.hinweise.push('Geokodierung fehlgeschlagen: '+e.message); }
+
+  // B) OSM-Mikrolage (braucht Koordinaten)
+  if(onStatus) onStatus('Mikrolage (OpenStreetMap) …');
+  try{
+    if(lage.lat!=null && lage.lon!=null){
+      const o = await apiOSM(lage.lat, lage.lon, s.osmRadius);
+      if(o){ lage.poi=o.poi; lage.radius=o.radius; lage.microScore=microScoreFromPOI(o.poi); lage.quellen.osm=true; }
+    } else {
+      lage.hinweise.push('Keine Koordinaten – Mikrolage übersprungen.');
+    }
+  }catch(e){ lage.hinweise.push('OSM-Abfrage fehlgeschlagen: '+e.message); }
+
+  // C) Destatis-Makrotrend (experimentell, braucht Key + AGS)
+  if(onStatus) onStatus('Makro-Trend (Destatis) …');
+  try{
+    if(s.destatisKey && lage.ags){
+      const d = await apiDestatis(lage.ags, s.destatisKey);
+      if(d){
+        lage.makroTrend = {
+          bevTrend:d.bevTrend,
+          modifier:Math.max(-0.5, Math.min(0.5, d.bevTrend*0.1)),  // gebremst: max ±0,5 %
+          quelle:d.quelle
+        };
+        lage.quellen.destatis=true;
+      }
+    } else if(s.destatisKey && !lage.ags){
+      lage.hinweise.push('Kein Regionalschlüssel (AGS) – Destatis übersprungen.');
+    } else if(!s.destatisKey){
+      lage.hinweise.push('Kein Destatis-Key – Makro-Trend übersprungen.');
+    }
+  }catch(e){ lage.hinweise.push('Destatis fehlgeschlagen (evtl. CORS): '+e.message); }
+
+  project.inputs.lage = lage;
+  persist(project);
+  return lage;
+}
+
+/* ----- Lage-Score: kombiniert Mikrolage + gebremsten Makro-Einfluss ----- */
+function lageScore(inp){
+  const l = inp.lage;
+  if(!l || (!l.quellen.osm && !l.quellen.destatis)) return null;   // keine belastbaren Daten
+  let score = (l.microScore!=null) ? l.microScore : 50;
+  const makroMod = l.makroTrend ? l.makroTrend.modifier : 0;
+  score = Math.max(0, Math.min(100, Math.round(score + makroMod*10)));  // ±5 Punkte bei ±0,5 %
+  return {score, micro:l.microScore, makroModifier:makroMod, hasOsm:l.quellen.osm, hasDestatis:l.quellen.destatis};
+}
+function lageAmpel(score){ return score>=70 ? 'g' : (score>=45 ? 'y' : 'r'); }
+
+/* ----- UI-Badges: welche Daten kamen live über APIs? ----- */
+function lageBadges(l){
+  if(!l) return '';
+  const b = (on,txt) => `<span class="badge ${on?'on':'off'}">${on?'✔':'○'} ${txt}</span>`;
+  return `<div class="badges">
+    ${b(l.quellen.geo,'Geokodierung')}
+    ${b(l.quellen.osm,'OSM-Daten')}
+    ${l.quellen.destatis ? b(true,'Destatis-Trend') : '<span class="badge exp">○ Destatis (experimentell)</span>'}
+  </div>`;
+}
 
 /* =========================================================================
    BERECHNUNGS-ENGINE  – einziger Ort für alle Formeln
@@ -526,6 +809,7 @@ function showDashboard(){
   document.getElementById('view-dashboard').classList.remove('hidden');
   document.getElementById('view-project').classList.add('hidden');
   document.getElementById('view-compare').classList.add('hidden');
+  document.getElementById('view-settings').classList.add('hidden');
   setRight('');
   renderDashboard();
 }
@@ -556,9 +840,20 @@ function projektAmpel(p){
   const r = calc(p.inputs);
   if(p.inputs.kaufpreis==null || p.inputs.kaltmiete==null) return 'y';
   // grobe Gesamtampel aus Cashflow + Faktor
-  if(r.cashflowNachSteuerMonat>=0 && r.faktor!=null && r.faktor<25) return 'g';
-  if(r.cashflowNachSteuerMonat<-150 || (r.faktor!=null && r.faktor>=28)) return 'r';
-  return 'y';
+  let a;
+  if(r.cashflowNachSteuerMonat>=0 && r.faktor!=null && r.faktor<25) a='g';
+  else if(r.cashflowNachSteuerMonat<-150 || (r.faktor!=null && r.faktor>=28)) a='r';
+  else a='y';
+  // Gebremster Lage-Einfluss: max. eine Stufe auf/ab (nur wenn Live-Daten vorliegen)
+  const ls = lageScore(p.inputs);
+  if(ls){
+    const order = ['r','y','g'];
+    let idx = order.indexOf(a);
+    if(ls.score>=70 && idx<2) idx++;
+    else if(ls.score<=30 && idx>0) idx--;
+    a = order[idx];
+  }
+  return a;
 }
 
 function renderDashboard(){
@@ -691,6 +986,98 @@ function renderCompare(){
 }
 
 /* =========================================================================
+   EINSTELLUNGEN-VIEW  (API-Keys, Radius, Cache)
+   ========================================================================= */
+function showSettings(){
+  document.getElementById('view-dashboard').classList.add('hidden');
+  document.getElementById('view-project').classList.add('hidden');
+  document.getElementById('view-compare').classList.add('hidden');
+  document.getElementById('view-settings').classList.remove('hidden');
+  setRight('');
+  renderSettings();
+}
+
+function renderSettings(){
+  const s = loadSettings();
+  const body = document.getElementById('settingsBody');
+  // Eigene <form>-Elemente je Anbieter mit username (Dienstname) + Passwortfeld,
+  // damit iOS/macOS-Schlüsselbund je Dienst einen eigenen Eintrag anbietet/ausfüllt.
+  body.innerHTML = `
+  <div class="card">
+    <h2>API-Schlüssel</h2>
+    <p class="muted" style="margin-top:0">Optional. Ohne Schlüssel funktioniert der Rechner vollständig – externe Daten reichern Lage-Score und Trend nur an.</p>
+    <div class="note warn">Sicherheit: Schlüssel werden <b>unverschlüsselt im Browser (localStorage)</b> abgelegt und sind auf diesem Gerät einsehbar. Nur auf einem privaten, vertrauenswürdigen Gerät hinterlegen.</div>
+
+    <form id="formOpencage" autocomplete="on" onsubmit="return false">
+      <h3>OpenCage · Geokodierung</h3>
+      <input class="input" type="text" name="username" id="svc-opencage" autocomplete="username"
+             value="OpenCage" aria-label="Dienst" style="margin-bottom:8px" readonly>
+      <div class="keyrow">
+        <input class="input" type="password" name="api-key" id="api-key-opencage"
+               autocomplete="current-password" inputmode="text" spellcheck="false"
+               placeholder="API-Key einfügen" value="${esc(s.opencageKey)}">
+        <button type="button" class="btn secondary small" data-toggle="api-key-opencage">Anzeigen</button>
+      </div>
+      <div class="hint">Gratis-Key: opencagedata.com (2.500 Anfragen/Tag). Wird durch das Caching geschont.</div>
+    </form>
+
+    <form id="formDestatis" autocomplete="on" onsubmit="return false" style="margin-top:16px">
+      <h3>Destatis GENESIS · Demografie <span class="badge exp">experimentell</span></h3>
+      <input class="input" type="text" name="username" id="svc-destatis" autocomplete="username"
+             value="Destatis" aria-label="Dienst" style="margin-bottom:8px" readonly>
+      <div class="keyrow">
+        <input class="input" type="password" name="api-key" id="api-key-destatis"
+               autocomplete="current-password" inputmode="text" spellcheck="false"
+               placeholder="Kennung:Passwort oder Token" value="${esc(s.destatisKey)}">
+        <button type="button" class="btn secondary small" data-toggle="api-key-destatis">Anzeigen</button>
+      </div>
+      <div class="hint">Der direkte Browser-Abruf kann an CORS scheitern – dann bleibt der Makro-Trend leer (das Tool rechnet trotzdem normal weiter).</div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Mikrolage (OpenStreetMap)</h2>
+    <p class="muted" style="margin-top:0">Overpass/OSM benötigt <b>keinen</b> Schlüssel.</p>
+    <div class="field"><label>Suchradius für POIs</label>
+      <div class="range-row">
+        <input type="range" min="300" max="1500" step="100" id="osmRadius" value="${s.osmRadius}">
+        <span class="range-val" id="osmRadiusVal">${s.osmRadius} m</span>
+      </div>
+      <div class="hint">Umkreis für Supermärkte, ÖPNV und Schulen/Kitas.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Cache</h2>
+    <p class="muted">API-Antworten werden ${CFG.api.cacheTtlTage} Tage lokal zwischengespeichert, um Credits zu sparen. Geprüft wird immer zuerst der Cache.</p>
+    <div class="kpi-line"><span class="k">Einträge im Cache</span><span class="v" id="cacheCount">${cacheCount()}</span></div>
+    <div style="margin-top:10px"><button class="btn secondary" id="btnClearCache">Cache leeren</button></div>
+  </div>`;
+
+  // Live-Speichern der Eingaben
+  body.querySelector('#api-key-opencage').addEventListener('input', e=>{
+    const st=loadSettings(); st.opencageKey=e.target.value.trim(); saveSettings(st);
+  });
+  body.querySelector('#api-key-destatis').addEventListener('input', e=>{
+    const st=loadSettings(); st.destatisKey=e.target.value.trim(); saveSettings(st);
+  });
+  const rad = body.querySelector('#osmRadius');
+  rad.addEventListener('input', e=>{
+    document.getElementById('osmRadiusVal').textContent = e.target.value+' m';
+    const st=loadSettings(); st.osmRadius=+e.target.value; saveSettings(st);
+  });
+  body.querySelectorAll('[data-toggle]').forEach(btn=>btn.onclick=()=>{
+    const inp = document.getElementById(btn.dataset.toggle);
+    const reveal = inp.type==='password';
+    inp.type = reveal ? 'text' : 'password';
+    btn.textContent = reveal ? 'Verbergen' : 'Anzeigen';
+  });
+  body.querySelector('#btnClearCache').onclick=()=>{
+    clearCache(); document.getElementById('cacheCount').textContent='0';
+  };
+}
+
+/* =========================================================================
    WIZARD
    ========================================================================= */
 function switchTab(tab){
@@ -806,6 +1193,9 @@ STEP_RENDER[1] = ()=>{
     <h2>Das Objekt</h2>
     ${numField('Kaufpreis','kaufpreis','€','Aus dem Exposé.')}
     ${numField('Wohnfläche','wohnflaeche','m²')}
+    <div class="field"><label>Adresse <span class="muted" style="font-weight:400">(optional – für die Lage-Analyse)</span></label>
+      <input class="input" type="text" id="adresseFeld" value="${esc(i.adresse||'')}" placeholder="Straße Nr., PLZ Ort">
+    </div>
     ${choiceField('Bundesland','bundesland',[{val:'BY',label:'Bayern'},{val:'BW',label:'Baden-Württemberg'}],null)}
     ${choiceField('Region (für Preisvergleich)','region',Object.entries(CFG.regionen).map(([k,v])=>({val:k,label:v.label})))}
     ${choiceField('Baujahr','baujahr',[
@@ -820,15 +1210,80 @@ STEP_RENDER[1] = ()=>{
     </div>
     ${choiceField('In Eigentümergemeinschaft (WEG)?','weg',[{val:true,label:'Ja'},{val:false,label:'Nein'}])}
     <div id="benchBox"></div>
+    <div id="lageWrap" style="margin-top:10px">
+      <button class="btn secondary" id="btnLagePruefen">📍 Lage online prüfen</button>
+      <div id="lageBox"></div>
+    </div>
   </div>`;
 };
 STEP_BIND[1] = ()=>{
   bindNums(); bindChoices(false);
   document.querySelector('[data-sel=energieklasse]').addEventListener('change',e=>{update('energieklasse',e.target.value);});
+  document.getElementById('adresseFeld').addEventListener('input',e=>{ update('adresse', e.target.value); });
+  document.getElementById('btnLagePruefen').onclick = runLageEnrich;
   // Region/Bundesland Klicks sollen Benchmark neu rendern -> rerender choices for region & bundesland & baujahr handled by onInputChange
   onInputChange = ()=>{ document.getElementById('btnNext').disabled=!stepValid(1); renderBench(); };
   renderBench();
+  renderLageBox();
 };
+
+/* ----- Lage-Analyse anstoßen (asynchron, Graceful Degradation) ----- */
+async function runLageEnrich(){
+  const btn = document.getElementById('btnLagePruefen');
+  const box = document.getElementById('lageBox');
+  if(!current.inputs.adresse || !current.inputs.adresse.trim()){
+    box.innerHTML = '<div class="note warn">Bitte zuerst eine Adresse eingeben.</div>';
+    return;
+  }
+  const s = loadSettings();
+  if(!s.opencageKey){
+    box.innerHTML = '<div class="note warn">Kein OpenCage-Key hinterlegt. Unter ⚙︎ Einstellungen eintragen – ohne Geokodierung kann die Lage nicht online geprüft werden.</div>';
+    return;
+  }
+  btn.disabled = true;
+  box.innerHTML = '<div class="note info"><span class="spin"></span> Lade Lagedaten …</div>';
+  try{
+    await lageEnrich(current, msg=>{ box.innerHTML = '<div class="note info"><span class="spin"></span> '+esc(msg)+'</div>'; });
+  }catch(e){ /* lageEnrich kapselt Fehler bereits in lage.hinweise */ }
+  btn.disabled = false;
+  renderLageBox();
+}
+
+/* ----- Lage-Ergebnis darstellen (Badges, POIs, Score, Trend) ----- */
+function renderLageBox(){
+  const box = document.getElementById('lageBox'); if(!box) return;
+  const l = current.inputs.lage;
+  if(!l){
+    const s = loadSettings();
+    box.innerHTML = `<div class="hint" style="margin-top:8px">${s.opencageKey
+      ? 'Wandelt die Adresse in Koordinaten um und lädt Mikrolage (OSM) sowie – falls Key vorhanden – den Makro-Trend (Destatis).'
+      : 'Ohne API-Schlüssel läuft die Standard-Berechnung. Schlüssel optional unter ⚙︎ Einstellungen.'}</div>`;
+    return;
+  }
+  const ls = lageScore(current.inputs);
+  let inner = lageBadges(l);
+  if(l.formatted) inner += `<div class="hint">Erkannt: ${esc(l.formatted)}${l.landkreis?' · Kreis: '+esc(l.landkreis):''}</div>`;
+  if(l.poi){
+    inner += `<div class="result" style="margin-top:6px"><table>`
+      + Object.keys(CFG.poiKategorien).map(k=>`<tr><td>${CFG.poiKategorien[k].label} (Umkreis ${l.radius} m)</td><td class="num">${l.poi[k]}</td></tr>`).join('')
+      + `</table></div>`;
+  }
+  if(ls){
+    const a = lageAmpel(ls.score);
+    inner += `<div class="kpi-line"><span class="k">Mikrolage-Score</span><span class="v">${ls.score} / 100 <span class="dot ${a}"></span></span></div>`;
+  }
+  if(l.makroTrend){
+    inner += `<div class="note info" style="margin-top:6px">Makro-Trend (${esc(l.makroTrend.quelle||'Destatis')}): Bevölkerung ${fmtPct(l.makroTrend.bevTrend,1)} · empfohlene Wertsteigerungs-Anpassung ${l.makroTrend.modifier>=0?'+':''}${fmtPct(l.makroTrend.modifier,1)}.</div>`;
+  }
+  if(l.hinweise && l.hinweise.length){
+    inner += `<div class="hint" style="margin-top:6px">${l.hinweise.map(esc).join(' · ')}</div>`;
+  }
+  inner += `<div class="hint" style="margin-top:6px">Stand: ${new Date(l.fetchedAt).toLocaleString('de-DE')} · <button class="subtle-link" id="btnLageClear">zurücksetzen</button></div>`;
+  const anyLive = l.quellen.geo || l.quellen.osm || l.quellen.destatis;
+  box.innerHTML = `<div class="note ${anyLive?'green':'warn'}" style="margin-top:8px">${inner}</div>`;
+  const clr = document.getElementById('btnLageClear');
+  if(clr) clr.onclick = ()=>{ current.inputs.lage=null; save(); renderLageBox(); };
+}
 function renderBench(){
   const box=document.getElementById('benchBox'); if(!box)return;
   const i=current.inputs, r=calc(i);
@@ -1079,7 +1534,12 @@ function renderEval(){
   const reds = cards.filter(c=>c.amp==='r').length;
   const yellows = cards.filter(c=>c.amp==='y').length;
 
+  const lageLive = i.lage && (i.lage.quellen.geo || i.lage.quellen.osm || i.lage.quellen.destatis);
   document.getElementById('evalRoot').innerHTML = `
+  ${lageLive ? `<div class="card no-print" style="padding:12px 18px">
+    ${lageBadges(i.lage)}
+    <div class="hint">Mit ✔ markierte Quellen wurden live über APIs ergänzt. Alles Übrige beruht auf der Standard-Berechnung.</div>
+  </div>` : ''}
   <div class="card">
     <h2>Cashflow (monatlich)</h2>
     <div class="result">
@@ -1174,6 +1634,17 @@ function renderSim(){
   const snap=rows.filter(r=>pick.includes(r.jahr));
   const r20=rows[rows.length-1];
   const ekStart=calc(i).eigenkapital;
+  // Gebremster Makro-Einfluss: Destatis-Trend schlägt eine Wertsteigerung vor (auf Klick übernehmbar)
+  let makroNote='';
+  if(i.lage && i.lage.makroTrend){
+    const rec = Math.round((CFG.defaults.wertsteigerung + i.lage.makroTrend.modifier)*10)/10;
+    makroNote = `<div class="note info" style="margin-top:10px">
+      Makro-Trend (Destatis): Bevölkerung ${fmtPct(i.lage.makroTrend.bevTrend,1)} →
+      empfohlene Wertsteigerung ≈ <b>${fmtPct(rec,1)}</b>
+      (Basis ${fmtPct(CFG.defaults.wertsteigerung,1)} ${i.lage.makroTrend.modifier>=0?'+':''}${fmtPct(i.lage.makroTrend.modifier,1)}).
+      <button class="subtle-link" id="btnApplyMakro" data-rec="${rec}">übernehmen</button>
+    </div>`;
+  }
   out.innerHTML=`<div class="result" style="overflow-x:auto">
     <table>
       <tr style="font-weight:700">
@@ -1203,7 +1674,17 @@ function renderSim(){
       ${fmtEUR(ekStart)}. Werte sind nominal (nicht inflationsbereinigt) und beruhen auf den
       oben gewählten Steigerungsraten.
     </div>
-  </div>`;
+  </div>
+  ${makroNote}`;
+  const ap=document.getElementById('btnApplyMakro');
+  if(ap) ap.onclick=()=>{
+    const rec=+ap.dataset.rec;
+    current.inputs.wertsteigerung=rec; save();
+    const sl=document.querySelector('[data-range=wertsteigerung]');
+    if(sl) sl.value=rec;
+    const lbl=document.getElementById('wertStgVal'); if(lbl) lbl.textContent=fmtPct(rec,1);
+    renderSim();
+  };
 }
 
 function riskCards(i,r){
@@ -1257,6 +1738,20 @@ function riskCards(i,r){
     amp: haken>=2?'r':(haken===1?'y':'g'),
     text:'Beantworte die Checkliste selbst. Ab 2 Treffern: rote Karte und Gutachter empfohlen.',
     extra:abExtra});
+  // 11 Mikrolage (nur bei Live-Daten aus OSM/Destatis)
+  const ls = lageScore(i);
+  if(ls){
+    const poiTab = (i.lage && i.lage.poi)
+      ? `<div class="result" style="margin-top:8px"><table>${Object.keys(CFG.poiKategorien).map(k=>
+          `<tr><td>${CFG.poiKategorien[k].label} (Umkreis ${i.lage.radius} m)</td><td class="num">${i.lage.poi[k]}</td></tr>`).join('')}</table></div>`
+      : '';
+    cards.push({titel:'11 · Mikrolage (Live-Daten)', wert:ls.score+' / 100',
+      amp: lageAmpel(ls.score),
+      text:'Aus OpenStreetMap: Nähe zu Supermärkten, ÖPNV und Schulen/Kitas'
+        + (ls.hasDestatis?', inkl. Makro-Trend aus Destatis':'')
+        + '. Fließt gebremst (max. eine Stufe) in die Gesamtampel ein.',
+      extra: poiTab + lageBadges(i.lage)});
+  }
   return cards;
 }
 
@@ -1429,6 +1924,8 @@ document.getElementById('btnNewProject').onclick=()=>{
 document.getElementById('btnBackDash').onclick=()=>{ renderDashboard(); showDashboard(); };
 document.getElementById('btnCompare').onclick=()=>{ showCompare(); };
 document.getElementById('btnCompareBack').onclick=()=>{ showDashboard(); };
+document.getElementById('btnSettings').onclick=()=>{ showSettings(); };
+document.getElementById('btnSettingsBack').onclick=()=>{ showDashboard(); };
 document.querySelectorAll('#mainTabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
 document.getElementById('btnPrev').onclick=()=>{ if(stepIndex>0){stepIndex--;save();renderWizard();window.scrollTo(0,0);} };
 document.getElementById('btnNext').onclick=()=>{
