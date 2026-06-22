@@ -168,7 +168,10 @@ input,select{font-family:inherit;font-size:1rem}
     <div class="card">
       <h1>Deine Projekte</h1>
       <p class="muted">Bayern &amp; Baden-Württemberg · Bodenseeregion. Lege pro Objekt ein Projekt an. Alle Daten bleiben nur in diesem Browser gespeichert.</p>
-      <div style="margin-top:14px"><button class="btn" id="btnNewProject">+ Neues Projekt</button></div>
+      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="btnNewProject">+ Neues Projekt</button>
+        <button class="btn secondary" id="btnCompare">Objekte vergleichen</button>
+      </div>
     </div>
     <div id="projList" class="proj-list"></div>
   </section>
@@ -202,6 +205,19 @@ input,select{font-family:inherit;font-size:1rem}
     <div id="tab-checklist" class="hidden"></div>
   </section>
 
+  <!-- ============ COMPARE ============ -->
+  <section id="view-compare" class="hidden">
+    <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+      <button class="btn ghost" id="btnCompareBack">← Übersicht</button>
+      <div style="font-weight:700">Objekte vergleichen</div>
+    </div>
+    <div class="card no-print">
+      <p class="muted" style="margin-top:0">Wähle zwei oder mehr Projekte für den direkten Vergleich der Kennzahlen.</p>
+      <div id="compareSelect" class="proj-list"></div>
+    </div>
+    <div id="compareResult"></div>
+  </section>
+
 </div>
 
 <script>
@@ -224,15 +240,20 @@ const CFG = {
     sollzins:3.60, zinsbindung:15, tilgung:2.0,
     hausverwaltung:35, mietausfallProzent:2, nichtUmlagefaehigProzent:3, wegRuecklage:1.00,
     grenzsteuersatz:35, gebaeudeanteil:70,
-    ekQuote:0.20
+    ekQuote:0.20,
+    // Annahmen für die Mehrjahres-Simulation
+    mietsteigerung:1.5, wertsteigerung:2.0
   },
-  // Kaufpreis/m² Spannen (€) je Region
+  // Kaufpreis/m² Spannen (€) je Region – Bestandswohnungen, Stand Q2/2026 (Richtwerte)
+  regionenStand: 'Q2/2026',
   regionen: {
-    konstanz:        {label:'Konstanz',        min:3400, max:4500},
-    lindau:          {label:'Lindau',          min:4500, max:5500},
-    friedrichshafen: {label:'Friedrichshafen',  min:3000, max:4200},
-    muenchen:        {label:'München',          min:7000, max:9000},
-    allgaeu:         {label:'Allgäu',           min:3000, max:4500},
+    konstanz:        {label:'Konstanz',        min:3400, max:4600},
+    lindau:          {label:'Lindau',          min:4500, max:5600},
+    friedrichshafen: {label:'Friedrichshafen',  min:3000, max:4300},
+    ravensburg:      {label:'Ravensburg',       min:2800, max:3900},
+    ulm:             {label:'Ulm',              min:3200, max:4400},
+    muenchen:        {label:'München',          min:7500, max:9500},
+    allgaeu:         {label:'Allgäu',           min:3000, max:4600},
     sonstige:        {label:'Sonstige / unbekannt', min:null, max:null}
   },
   baujahrLabel: { vor1925:'Vor 1925', mittel:'1925–2022', ab2023:'Ab 2023', denkmal:'Denkmal' }
@@ -263,6 +284,7 @@ function blankInputs(){
     mietausfallProzent:d.mietausfallProzent, nichtUmlagefaehigProzent:d.nichtUmlagefaehigProzent,
     wegRuecklage:d.wegRuecklage,
     grenzsteuersatz:d.grenzsteuersatz, gebaeudeanteil:d.gebaeudeanteil,
+    mietsteigerung:d.mietsteigerung, wertsteigerung:d.wertsteigerung,
     anbieterCheck:[false,false,false,false,false,false]
   };
 }
@@ -413,6 +435,74 @@ function calc(inp){
   return r;
 }
 
+/* =========================================================================
+   MEHRJAHRES-SIMULATION  – Tilgungsverlauf, Mietsteigerung, Wertentwicklung
+   Annahmen (vereinfacht): konstante Annuität bis zur Volltilgung; Zinssatz
+   bleibt über die gesamte Laufzeit gleich (Anschlussfinanzierung zu gleichen
+   Konditionen); Miete und laufende Kosten wachsen jährlich mit der Mietsteige-
+   rung; AfA und Grenzsteuersatz konstant. Liefert Jahres-Schnappschüsse.
+   ========================================================================= */
+function simulate(inp, jahre){
+  const base = calc(inp);
+  jahre = jahre || 20;
+  const zins = base.zins;
+  const rate = base.rateMonat;                 // konstante Monatsrate
+  const mietW = (+inp.mietsteigerung||0)/100;
+  const wertW = (+inp.wertsteigerung||0)/100;
+  const grenz = base.grenz;
+  const afaJahr = base.afaJahr;
+  const kp = +inp.kaufpreis||0;
+
+  let restschuld = base.darlehen;
+  let jahresmiete = (+inp.kaltmiete||0)*12;
+  let bewirtschaftung = base.bewirtschaftungJahr;
+  let kumCashflowNach = 0;
+  let getilgt = 0;
+  const rows = [];
+
+  for(let y=1; y<=jahre; y++){
+    // 12 Monate Annuitätenverlauf
+    let zinsenJahr=0, getilgtJahr=0, gezahltJahr=0;
+    for(let m=0; m<12; m++){
+      if(restschuld<=0) break;
+      const zinsM = restschuld*zins/12;
+      let tilgM = rate - zinsM;
+      if(tilgM>restschuld) tilgM = restschuld;   // letzte (Teil-)Rate
+      if(tilgM<0) tilgM = 0;                      // falls Rate < Zins (Sonderfall)
+      zinsenJahr   += zinsM;
+      getilgtJahr  += tilgM;
+      gezahltJahr  += zinsM + tilgM;
+      restschuld   -= tilgM;
+      if(restschuld<0) restschuld=0;
+    }
+    getilgt += getilgtJahr;
+
+    // Steuer für dieses Jahr (Zinsen sinken → Steuervorteil schmilzt)
+    const werbungskosten = afaJahr + zinsenJahr + bewirtschaftung;
+    const steuerErgebnis = jahresmiete - werbungskosten;
+    const steuerEffekt = -(steuerErgebnis * grenz);   // >0 = Ersparnis
+
+    const cashflowVor  = jahresmiete - gezahltJahr - bewirtschaftung;
+    const cashflowNach = cashflowVor + steuerEffekt;
+    kumCashflowNach += cashflowNach;
+
+    const objektwert = kp * Math.pow(1+wertW, y);
+    const vermoegen  = objektwert - restschuld;        // Netto-Immobilienvermögen
+
+    rows.push({
+      jahr:y, miete:jahresmiete/12, restschuld,
+      cashflowVorMonat:cashflowVor/12, cashflowNachMonat:cashflowNach/12,
+      kumCashflowNach, objektwert, vermoegen, getilgtKum:getilgt,
+      steuerEffekt
+    });
+
+    // Wachstum zum Folgejahr
+    jahresmiete    *= (1+mietW);
+    bewirtschaftung*= (1+mietW);
+  }
+  return rows;
+}
+
 /* ---- Ampel-Helfer ---- */
 function amp(value, greenTest, yellowTest){
   if(value==null||isNaN(value)) return 'y';
@@ -435,6 +525,7 @@ function showDashboard(){
   current=null;
   document.getElementById('view-dashboard').classList.remove('hidden');
   document.getElementById('view-project').classList.add('hidden');
+  document.getElementById('view-compare').classList.add('hidden');
   setRight('');
   renderDashboard();
 }
@@ -442,6 +533,9 @@ function showDashboard(){
 function openProject(id){
   current = getProject(id);
   if(!current){ showDashboard(); return; }
+  // Migration: fehlende Eingabefelder (neuere Versionen) mit Defaults auffüllen
+  const blank = blankInputs();
+  for(const k in blank){ if(!(k in current.inputs)) current.inputs[k]=blank[k]; }
   stepIndex = current.step||0;
   document.getElementById('view-dashboard').classList.add('hidden');
   document.getElementById('view-project').classList.remove('hidden');
@@ -502,6 +596,98 @@ function renderDashboard(){
   el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
     if(confirm('Projekt wirklich löschen?')){ deleteProject(b.dataset.del); renderDashboard(); }
   });
+}
+
+/* =========================================================================
+   OBJEKT-VERGLEICH
+   ========================================================================= */
+let compareSel = [];   // ausgewählte Projekt-IDs
+
+function showCompare(){
+  const list=loadAll();
+  if(list.length<2){ alert('Lege mindestens zwei Projekte an, um sie zu vergleichen.'); return; }
+  // Vorauswahl: erste zwei Projekte
+  compareSel = compareSel.filter(id=>list.some(p=>p.id===id));
+  if(compareSel.length<2) compareSel = list.slice(0,2).map(p=>p.id);
+  document.getElementById('view-dashboard').classList.add('hidden');
+  document.getElementById('view-project').classList.add('hidden');
+  document.getElementById('view-compare').classList.remove('hidden');
+  setRight('');
+  renderCompare();
+}
+
+function renderCompare(){
+  const list=loadAll();
+  const sel=document.getElementById('compareSelect');
+  sel.innerHTML=list.map(p=>{
+    const on=compareSel.includes(p.id);
+    return `<label class="check"><input type="checkbox" data-cmp="${p.id}" ${on?'checked':''}><span>${esc(p.name)}</span></label>`;
+  }).join('');
+  sel.querySelectorAll('[data-cmp]').forEach(cb=>cb.onchange=()=>{
+    const id=cb.dataset.cmp;
+    if(cb.checked){ if(!compareSel.includes(id)) compareSel.push(id); }
+    else compareSel=compareSel.filter(x=>x!==id);
+    renderCompare();
+  });
+
+  const out=document.getElementById('compareResult');
+  const projs=compareSel.map(id=>getProject(id)).filter(Boolean);
+  if(projs.length<2){ out.innerHTML='<div class="card empty">Mindestens zwei Projekte auswählen.</div>'; return; }
+
+  const data=projs.map(p=>({p, r:calc(p.inputs), a:projektAmpel(p)}));
+  const faktorTxt=r=>r.faktor?r.faktor.toLocaleString('de-DE',{maximumFractionDigits:1}):'—';
+
+  // Vergleichszeilen: [Label, value-fn, besser-Richtung 'hoch'|'tief'|null]
+  const zeilen=[
+    ['Gesamtampel', d=>`<span class="dot ${d.a}"></span> ${ampWord[d.a]}`, null],
+    ['Kaufpreis', d=>fmtEUR(+d.p.inputs.kaufpreis||0), 'tief'],
+    ['Wohnfläche', d=>(d.p.inputs.wohnflaeche?d.p.inputs.wohnflaeche+' m²':'—'), null],
+    ['Kaufpreis/m²', d=>fmtEUR(d.r.preisProM2?Math.round(d.r.preisProM2):null), 'tief'],
+    ['Gesamtinvestition', d=>fmtEUR(d.r.gesamtinvest), 'tief'],
+    ['Bruttomietrendite', d=>fmtPct(d.r.bruttoRendite), 'hoch'],
+    ['Nettomietrendite', d=>fmtPct(d.r.nettoRendite), 'hoch'],
+    ['Kaufpreisfaktor', d=>faktorTxt(d.r), 'tief'],
+    ['Beleihungsauslauf (LTV)', d=>fmtPct(d.r.ltv,0), 'tief'],
+    ['Monatliche Rate', d=>fmtEUR(d.r.rateMonat), 'tief'],
+    ['Cashflow vor Steuern', d=>fmtEUR(d.r.cashflowVorSteuerMonat)+'/Mon.', 'hoch'],
+    ['Cashflow nach Steuern', d=>fmtEUR(d.r.cashflowNachSteuerMonat)+'/Mon.', 'hoch'],
+    ['Eigenkapitalrendite', d=>fmtPct(d.r.ekRendite), 'hoch']
+  ];
+  // numerische Rohwerte zum Bestimmen des „besten" Projekts je Zeile
+  const raw={
+    'Kaufpreis':d=>+d.p.inputs.kaufpreis||Infinity,
+    'Kaufpreis/m²':d=>d.r.preisProM2||Infinity,
+    'Gesamtinvestition':d=>d.r.gesamtinvest||Infinity,
+    'Bruttomietrendite':d=>d.r.bruttoRendite??-Infinity,
+    'Nettomietrendite':d=>d.r.nettoRendite??-Infinity,
+    'Kaufpreisfaktor':d=>d.r.faktor||Infinity,
+    'Beleihungsauslauf (LTV)':d=>d.r.ltv??Infinity,
+    'Monatliche Rate':d=>d.r.rateMonat||Infinity,
+    'Cashflow vor Steuern':d=>d.r.cashflowVorSteuerMonat??-Infinity,
+    'Cashflow nach Steuern':d=>d.r.cashflowNachSteuerMonat??-Infinity,
+    'Eigenkapitalrendite':d=>d.r.ekRendite??-Infinity
+  };
+
+  out.innerHTML=`<div class="card result" style="overflow-x:auto">
+    <table>
+      <tr style="font-weight:700"><td>Kennzahl</td>${data.map(d=>`<td class="num">${esc(d.p.name)}</td>`).join('')}</tr>
+      ${zeilen.map(([label,fn,dir])=>{
+        let bestIdx=-1;
+        if(dir && raw[label]){
+          const vals=data.map(raw[label]);
+          const finite=vals.filter(v=>isFinite(v));
+          if(finite.length){
+            const best = dir==='hoch'?Math.max(...finite):Math.min(...finite);
+            // nur markieren, wenn es einen eindeutigen Sieger gibt
+            if(vals.filter(v=>v===best).length===1) bestIdx=vals.indexOf(best);
+          }
+        }
+        return `<tr><td>${label}</td>${data.map((d,idx)=>
+          `<td class="num"${idx===bestIdx?' style="color:var(--green)"':''}>${fn(d)}${idx===bestIdx?' ✓':''}</td>`).join('')}</tr>`;
+      }).join('')}
+    </table>
+    <div class="hint" style="margin-top:10px">✓ markiert je Zeile den günstigeren Wert (höhere Rendite / niedrigere Kosten). Kein Gesamturteil – gewichte die Kennzahlen nach deinen Zielen.</div>
+  </div>`;
 }
 
 /* =========================================================================
@@ -654,10 +840,12 @@ function renderBench(){
     else if(r.preisProM2 <= reg.max){cls='warn';verdict='im oberen Normalbereich';}
     else {cls='red';verdict='über dem regionalen Normalbereich';}
   }
+  const typisch = Object.values(CFG.regionen).filter(x=>x.min!=null)
+    .map(x=>`${x.label} ${fmtEUR(x.min)}–${fmtEUR(x.max)}`).join(' · ');
   box.innerHTML = `<div class="note ${cls==='info'?'info':cls}">
     <b>Dein Kaufpreis/m²: ${fmtEUR(Math.round(r.preisProM2))}</b>
     ${reg&&reg.min!=null?` – ${verdict} (${reg.label} ${fmtEUR(reg.min)}–${fmtEUR(reg.max)}).`:''}
-    <div style="margin-top:6px;font-size:.85rem">Typisch: Konstanz 3.400–4.500 € · Lindau 4.500–5.500 € · Friedrichshafen 3.000–4.200 € · München 7.000–9.000 € · Allgäu 3.000–4.500 €.</div>
+    <div style="margin-top:6px;font-size:.85rem">Richtwerte (Bestand, Stand ${CFG.regionenStand}): ${typisch}.</div>
   </div>`;
 }
 
@@ -926,6 +1114,28 @@ function renderEval(){
     </div>
   </div>
 
+  <div class="card" id="simCard">
+    <h2>Mehrjahres-Simulation</h2>
+    <p class="muted" style="margin-top:0">Tilgungsverlauf, Mietsteigerung und Wertentwicklung über die Haltedauer. Vereinfachte Annahme: gleichbleibende Rate und gleicher Zins auch nach der Zinsbindung.</p>
+    <div class="row2">
+      <div class="field" style="margin:6px 0">
+        <label>Mietsteigerung p.&nbsp;a.</label>
+        <div class="range-row">
+          <input type="range" min="0" max="4" step="0.5" data-range="mietsteigerung" value="${i.mietsteigerung}">
+          <span class="range-val" id="mietStgVal">${fmtPct(i.mietsteigerung,1)}</span>
+        </div>
+      </div>
+      <div class="field" style="margin:6px 0">
+        <label>Wertsteigerung p.&nbsp;a.</label>
+        <div class="range-row">
+          <input type="range" min="-1" max="4" step="0.5" data-range="wertsteigerung" value="${i.wertsteigerung}">
+          <span class="range-val" id="wertStgVal">${fmtPct(i.wertsteigerung,1)}</span>
+        </div>
+      </div>
+    </div>
+    <div id="simResult"></div>
+  </div>
+
   <div class="card no-print">
     <h2>Nächste Schritte</h2>
     <p class="muted">Wechsle in die <b>Projekt-Checkliste</b>, um den gesamten Lebenszyklus (Due Diligence, Kauf, Vermietung …) Schritt für Schritt abzuhaken.</p>
@@ -941,6 +1151,59 @@ function renderEval(){
       current.inputs.anbieterCheck[+cb.dataset.ab]=cb.checked; save(); renderEval();
     };
   });
+
+  // Mehrjahres-Simulation: Slider binden + erstes Rendering
+  const mStg=document.querySelector('[data-range=mietsteigerung]');
+  const wStg=document.querySelector('[data-range=wertsteigerung]');
+  if(mStg) mStg.addEventListener('input',e=>{
+    current.inputs.mietsteigerung=+e.target.value;
+    document.getElementById('mietStgVal').textContent=fmtPct(+e.target.value,1); save(); renderSim();
+  });
+  if(wStg) wStg.addEventListener('input',e=>{
+    current.inputs.wertsteigerung=+e.target.value;
+    document.getElementById('wertStgVal').textContent=fmtPct(+e.target.value,1); save(); renderSim();
+  });
+  renderSim();
+}
+
+function renderSim(){
+  const out=document.getElementById('simResult'); if(!out) return;
+  const i=current.inputs;
+  const rows=simulate(i,20);
+  const pick=[1,5,10,15,20];
+  const snap=rows.filter(r=>pick.includes(r.jahr));
+  const r20=rows[rows.length-1];
+  const ekStart=calc(i).eigenkapital;
+  out.innerHTML=`<div class="result" style="overflow-x:auto">
+    <table>
+      <tr style="font-weight:700">
+        <td>Jahr</td>
+        <td class="num">Miete/Mon.</td>
+        <td class="num">CF n. St./Mon.</td>
+        <td class="num">Restschuld</td>
+        <td class="num">Objektwert</td>
+        <td class="num">Immo-Vermögen</td>
+      </tr>
+      ${snap.map(s=>`<tr>
+        <td>${s.jahr}</td>
+        <td class="num">${fmtEUR(s.miete)}</td>
+        <td class="num">${fmtEUR(s.cashflowNachMonat)}</td>
+        <td class="num">${fmtEUR(s.restschuld)}</td>
+        <td class="num">${fmtEUR(s.objektwert)}</td>
+        <td class="num">${fmtEUR(s.vermoegen)}</td>
+      </tr>`).join('')}
+    </table>
+  </div>
+  <div class="note info" style="margin-top:10px">
+    Nach 20 Jahren: Restschuld ${fmtEUR(r20.restschuld)} · Immobilien-Nettovermögen
+    ${fmtEUR(r20.vermoegen)} (Objektwert minus Restschuld).
+    Kumulierter Cashflow nach Steuern über 20 J.: ${fmtEUR(r20.kumCashflowNach)}.
+    <div style="margin-top:6px;font-size:.85rem">
+      „Immo-Vermögen" = Tilgung + Wertentwicklung. Das eingesetzte Eigenkapital betrug
+      ${fmtEUR(ekStart)}. Werte sind nominal (nicht inflationsbereinigt) und beruhen auf den
+      oben gewählten Steigerungsraten.
+    </div>
+  </div>`;
 }
 
 function riskCards(i,r){
@@ -1164,6 +1427,8 @@ document.getElementById('btnNewProject').onclick=()=>{
   openProject(p.id);
 };
 document.getElementById('btnBackDash').onclick=()=>{ renderDashboard(); showDashboard(); };
+document.getElementById('btnCompare').onclick=()=>{ showCompare(); };
+document.getElementById('btnCompareBack').onclick=()=>{ showDashboard(); };
 document.querySelectorAll('#mainTabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
 document.getElementById('btnPrev').onclick=()=>{ if(stepIndex>0){stepIndex--;save();renderWizard();window.scrollTo(0,0);} };
 document.getElementById('btnNext').onclick=()=>{
