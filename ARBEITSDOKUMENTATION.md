@@ -68,6 +68,26 @@ Datenmodell eines Projekts:
 Separate Storage-Keys: `immo_projekte_v1` (Projekte), `immo_settings_v1` (API-Keys/Radius),
 `immo_apicache_v1` (API-Cache, TTL 30 Tage).
 
+### Hedonische Bewertung (AVM) – `bewerteImmobilie(obj, basispreis, opt)`
+Reine, seiteneffektfreie Utility-Funktion neben `calc`/`simulate` (kein eigener UI-Teil,
+nur als aufrufbare, per JSDoc typisierte Funktion). Multiplikatives, semi-logarithmisches
+Modell: `Gesamtpreis = (Basis-m²-Preis · Produkt aller Faktoren) · Wohnfläche + absolute Zuschläge`.
+Alle Faktoren/Fixwerte liegen in `CFG.avm` (Standardobjekt 80 m² / Bj. 1990 / Zustand „Normal" /
+Energie D-E = Faktor 1.0). Enthält Größendegression `(Fläche/80)^-0.1`, Alterswertminderung
+0,7 %/Jahr mit hartem Cap bei 0.60, kategorische Multiplikatoren (Energie/Zustand/Ausstattung),
+Dummies (Balkon, Aufzug ab 3. OG, Lärm > 65 dB) und absolute Zuschläge für Garagen/Stellplätze
+(konfigurierbar via `opt`). Rundung erst am Ende, kaufmännisch (`rundeKaufmaennisch`).
+Rückgabe: `{ gesamtpreis, quadratmeterpreis, zuschlaege, faktoren }`.
+
+```js
+bewerteImmobilie(
+  { wohnflaeche:120, baujahr:2015, energieklasse:'B', zustand:'gut',
+    ausstattung:'gehoben', balkon:true, aufzug:true, etage:4, garagen:1 },
+  5000,                       // regionaler Basis-m²-Preis
+  { aktuellesJahr:2026 }      // optional: garagenWert, stellplatzWert, aktuellesJahr
+); // -> { gesamtpreis: 759652, quadratmeterpreis: 6205.44, zuschlaege: 15000, faktoren: {...} }
+```
+
 ---
 
 ## 3. Bewusst getroffene Entscheidungen (bitte prüfen)

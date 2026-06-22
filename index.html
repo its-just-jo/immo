@@ -295,6 +295,20 @@ const CFG = {
     supermarkt: { label:'Supermärkte', filter:'nwr["shop"~"supermarket|convenience"]', gewicht:35, saturierung:3 },
     oepnv:      { label:'ÖPNV-Halte',  filter:'node["public_transport"="station"];node["highway"="bus_stop"]', gewicht:35, saturierung:4 },
     schule:     { label:'Schulen/Kitas', filter:'nwr["amenity"~"school|kindergarten"]', gewicht:30, saturierung:3 }
+  },
+
+  /* ----- Hedonische Bewertung (AVM) – Multiplikatoren & Fixwerte -----
+     Standardimmobilie (80 m², Baujahr 1990, Zustand „Normal", Energie D/E) = Faktor 1.0. */
+  avm: {
+    referenzflaeche: 80,            // m² der fiktiven Standardimmobilie
+    groessenExponent: -0.1,         // Größendegression: (Fläche/80)^-0.1
+    altersminderungProJahr: 0.007,  // linearer Abzug 0,7 %/Jahr
+    alterFaktorMin: 0.60,           // hartes Cap: max. 40 % Wertminderung
+    energie:     { 'A+':1.12, 'A':1.12, 'B':1.12, 'C':1.05, 'D':1.00, 'E':1.00, 'F':0.92, 'G':0.85, 'H':0.85 },
+    zustand:     { erstbezug:1.12, kernsaniert:1.12, gut:1.05, modernisiert:1.05, normal:1.00, gepflegt:1.00, renovierungsbeduerftig:0.80 },
+    ausstattung: { luxus:1.15, gehoben:1.08, normal:1.00, einfach:0.88 },
+    dummy:       { balkon:1.05, aufzugAb3:1.05, laerm:0.90, laermSchwelleDb:65 },
+    fix:         { garage:15000, stellplatz:7500 }
   }
 };
 
@@ -784,6 +798,115 @@ function simulate(inp, jahre){
     bewirtschaftung*= (1+mietW);
   }
   return rows;
+}
+
+/* =========================================================================
+   HEDONISCHE BEWERTUNG (AVM)  – multiplikatives, semi-logarithmisches Modell
+   -------------------------------------------------------------------------
+   Gesamtpreis = (Basis-m²-Preis · Produkt aller Faktoren) · Wohnfläche
+                 + absolute Zuschläge (Garagen/Stellplätze).
+   Reine, seiteneffektfreie Funktion – unabhängig von calc() und vom UI.
+   Alle Faktoren/Fixwerte stehen in CFG.avm.
+   ========================================================================= */
+
+/**
+ * @typedef {Object} AvmObjekt
+ * @property {number}  wohnflaeche          Wohnfläche in m².
+ * @property {number}  baujahr              Baujahr (Jahr).
+ * @property {number} [sanierungsjahr]      Jahr der Vollsanierung; setzt das effektive Alter zurück.
+ * @property {string} [energieklasse]       'A+'|'A'|'B'|'C'|'D'|'E'|'F'|'G'|'H'.
+ * @property {string} [zustand]             'erstbezug'|'kernsaniert'|'gut'|'modernisiert'|'normal'|'gepflegt'|'renovierungsbeduerftig'.
+ * @property {string} [ausstattung]         'luxus'|'gehoben'|'normal'|'einfach'.
+ * @property {boolean}[balkon]              Balkon/Terrasse vorhanden.
+ * @property {boolean}[aufzug]              Aufzug vorhanden.
+ * @property {number} [etage]               Etage (Aufzug-Bonus erst ab dem 3. OG).
+ * @property {number} [laermDb]             Lärmbelastung in dB.
+ * @property {number} [garagen]             Anzahl Garagen.
+ * @property {number} [aussenstellplaetze]  Anzahl Außenstellplätze.
+ *
+ * @typedef {Object} AvmOptionen
+ * @property {number} [garagenWert]    EUR je Garage (Default CFG.avm.fix.garage = 15.000).
+ * @property {number} [stellplatzWert] EUR je Außenstellplatz (Default CFG.avm.fix.stellplatz = 7.500).
+ * @property {number} [aktuellesJahr]  Bezugsjahr für die Alterswertminderung (Default: laufendes Jahr).
+ *
+ * @typedef {Object} AvmErgebnis
+ * @property {number} gesamtpreis        Kalkulierter Gesamtwert in EUR (kaufmännisch gerundet).
+ * @property {number} quadratmeterpreis  Kalkulierter m²-Preis in EUR (vor absoluten Zuschlägen).
+ * @property {number} zuschlaege         Summe der absoluten Zuschläge (Garagen/Stellplätze) in EUR.
+ * @property {Object} faktoren           Einzelne Faktoren (zur Nachvollziehbarkeit/Transparenz).
+ *
+ * Bewertet ein Immobilienobjekt hedonisch.
+ * @param {AvmObjekt} obj            Das zu bewertende Objekt.
+ * @param {number}    basispreis     Regionaler Basis-m²-Preis der Standardimmobilie (= Multiplikator 1.0).
+ * @param {AvmOptionen} [opt]        Optionale, konfigurierbare Fixwerte/Parameter.
+ * @returns {AvmErgebnis}
+ */
+function bewerteImmobilie(obj, basispreis, opt){
+  const c = CFG.avm;
+  obj = obj || {};
+  opt = opt || {};
+  const basis          = +basispreis || 0;
+  const garagenWert    = opt.garagenWert    != null ? +opt.garagenWert    : c.fix.garage;
+  const stellplatzWert = opt.stellplatzWert != null ? +opt.stellplatzWert : c.fix.stellplatz;
+  const jahr           = +opt.aktuellesJahr || new Date().getFullYear();
+  const flaeche        = +obj.wohnflaeche || 0;
+
+  /* --- 2. Stetige Variablen -------------------------------------------- */
+  // Größendegression: kleinere Wohnungen erzielen einen höheren m²-Preis.
+  const fGroesse = flaeche>0 ? Math.pow(flaeche / c.referenzflaeche, c.groessenExponent) : 1;
+
+  // Alterswertminderung ab Baujahr bzw. Jahr der Vollsanierung (das spätere zählt),
+  // 0,7 %/Jahr, hartes Cap bei 0.60 (= max. 40 % Minderung).
+  const effektivesJahr = Math.max(+obj.baujahr || 0, +obj.sanierungsjahr || 0);
+  const alter  = effektivesJahr>0 ? Math.max(0, jahr - effektivesJahr) : 0;
+  const fAlter = Math.max(c.alterFaktorMin, 1 - c.altersminderungProJahr * alter);
+
+  /* --- 3. Kategorische Multiplikatoren (unbekannt/leer -> neutral 1.0) -- */
+  const fEnergie     = avmMap(c.energie,     obj.energieklasse);
+  const fZustand     = avmMap(c.zustand,     obj.zustand);
+  const fAusstattung = avmMap(c.ausstattung, obj.ausstattung);
+
+  /* --- 4. Dummy-Variablen (bedingte Multiplikatoren) ------------------- */
+  const fBalkon = obj.balkon ? c.dummy.balkon : 1;
+  const fAufzug = (obj.aufzug && (+obj.etage||0) >= 3) ? c.dummy.aufzugAb3 : 1;
+  const fLaerm  = ((+obj.laermDb||0) > c.dummy.laermSchwelleDb) ? c.dummy.laerm : 1;
+
+  const faktoren = {
+    groesse:fGroesse, alter:fAlter, energie:fEnergie, zustand:fZustand,
+    ausstattung:fAusstattung, balkon:fBalkon, aufzug:fAufzug, laerm:fLaerm
+  };
+
+  // Produkt aller Faktoren (volle Float-Genauigkeit – Rundung erst ganz am Ende).
+  const produkt = fGroesse * fAlter * fEnergie * fZustand * fAusstattung * fBalkon * fAufzug * fLaerm;
+  const qmPreis = basis * produkt;
+
+  /* --- 5. Absolute Additionen (NICHT in den m²-Preis multiplizieren) --- */
+  const zuschlaege = (+obj.garagen||0) * garagenWert + (+obj.aussenstellplaetze||0) * stellplatzWert;
+  const gesamtRoh  = qmPreis * flaeche + zuschlaege;
+
+  return {
+    gesamtpreis:       rundeKaufmaennisch(gesamtRoh, 0),
+    quadratmeterpreis: rundeKaufmaennisch(qmPreis, 2),
+    zuschlaege:        rundeKaufmaennisch(zuschlaege, 0),
+    faktoren
+  };
+}
+
+/** Schlägt einen kategorischen Faktor robust nach (roh/getrimmt/Groß-/Kleinschreibung); Fallback 1.0. */
+function avmMap(tabelle, key){
+  if(key==null) return 1;
+  const raw = String(key).trim();
+  if(tabelle[raw]   != null) return tabelle[raw];
+  if(tabelle[raw.toUpperCase()] != null) return tabelle[raw.toUpperCase()];
+  if(tabelle[raw.toLowerCase()] != null) return tabelle[raw.toLowerCase()];
+  return 1;
+}
+
+/** Kaufmännische Rundung (half away from zero), float-robust per kleinem Epsilon. */
+function rundeKaufmaennisch(wert, stellen){
+  if(!isFinite(wert)) return 0;
+  const f = Math.pow(10, stellen||0);
+  return Math.sign(wert) * Math.round(Math.abs(wert)*f + 1e-9) / f;
 }
 
 /* ---- Ampel-Helfer ---- */
