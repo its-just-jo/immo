@@ -158,6 +158,7 @@ input,select{font-family:inherit;font-size:1rem}
 .subdetails>summary::-webkit-details-marker{display:none}
 .subdetails>summary::before{content:'▸';color:var(--muted)}
 .subdetails[open]>summary::before{content:'▾'}
+.buildstamp{margin:28px 0 8px;text-align:center;font-style:italic;font-size:.72rem;color:var(--muted);opacity:.8}
 
 .hidden{display:none !important}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -245,10 +246,16 @@ input,select{font-family:inherit;font-size:1rem}
     <div id="settingsBody"></div>
   </section>
 
+  <!-- Build-/Versionsstempel: zeigt, welcher Stand gerade live ist (bei jeder Code-Änderung aktualisieren) -->
+  <footer class="buildstamp"><span id="buildStamp"></span></footer>
 </div>
 
 <script>
 "use strict";
+
+/* Build-/Versionsstempel – bei JEDER Code-Änderung auf Datum + Uhrzeit aktualisieren.
+   Macht im Footer sichtbar, welcher Stand gerade live (z. B. auf GitHub Pages) ist. */
+const BUILD_STAMP = '22.06.2026, 21:35 Uhr';
 
 /* =========================================================================
    KONFIGURATION & RICHTWERTE  (Stand Juni 2026, BY / BW / Bodensee)
@@ -2193,6 +2200,7 @@ document.getElementById('btnCompare').onclick=()=>{ showCompare(); };
 document.getElementById('btnCompareBack').onclick=()=>{ showDashboard(); };
 document.getElementById('btnSettings').onclick=()=>{ showSettings(); };
 document.getElementById('btnSettingsBack').onclick=()=>{ showDashboard(); };
+document.getElementById('buildStamp').textContent = 'Letzte Änderung: '+BUILD_STAMP;
 document.querySelectorAll('#mainTabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
 document.getElementById('btnPrev').onclick=()=>{ if(stepIndex>0){stepIndex--;save();renderWizard();window.scrollTo(0,0);} };
 document.getElementById('btnNext').onclick=()=>{
