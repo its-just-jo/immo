@@ -255,7 +255,7 @@ input,select{font-family:inherit;font-size:1rem}
 
 /* Build-/Versionsstempel – bei JEDER Code-Änderung auf Datum + Uhrzeit aktualisieren.
    Macht im Footer sichtbar, welcher Stand gerade live (z. B. auf GitHub Pages) ist. */
-const BUILD_STAMP = '22.06.2026, 21:35 Uhr';
+const BUILD_STAMP = '23.06.2026, 10:53 Uhr';
 
 /* =========================================================================
    KONFIGURATION & RICHTWERTE  (Stand Juni 2026, BY / BW / Bodensee)
@@ -589,7 +589,13 @@ async function lageEnrich(project, onStatus){
     } else if(!s.opencageKey){
       lage.hinweise.push('Kein OpenCage-Key – Geokodierung übersprungen.');
     }
-  }catch(e){ lage.hinweise.push('Geokodierung fehlgeschlagen: '+e.message); }
+  }catch(e){
+    let zusatz = '';
+    if(/401/.test(e.message)) zusatz = ' – API-Key ungültig/nicht aktiviert (unter ⚙︎ Einstellungen „Testen").';
+    else if(/402/.test(e.message)) zusatz = ' – Tageskontingent aufgebraucht.';
+    else if(/403/.test(e.message)) zusatz = ' – Key gesperrt/eingeschränkt.';
+    lage.hinweise.push('Geokodierung fehlgeschlagen: '+e.message+zusatz);
+  }
 
   // B) OSM-Mikrolage (braucht Koordinaten)
   if(onStatus) onStatus('Mikrolage (OpenStreetMap) …');
@@ -1167,31 +1173,25 @@ function renderSettings(){
     <p class="muted" style="margin-top:0">Optional. Ohne Schlüssel funktioniert der Rechner vollständig – externe Daten reichern Lage-Score und Trend nur an.</p>
     <div class="note warn">Sicherheit: Schlüssel werden <b>unverschlüsselt im Browser (localStorage)</b> abgelegt und sind auf diesem Gerät einsehbar. Nur auf einem privaten, vertrauenswürdigen Gerät hinterlegen.</div>
 
-    <form id="formOpencage" autocomplete="on" onsubmit="return false">
-      <h3>OpenCage · Geokodierung</h3>
-      <input class="input" type="text" name="username" id="svc-opencage" autocomplete="username"
-             value="OpenCage" aria-label="Dienst" style="margin-bottom:8px" readonly>
-      <div class="keyrow">
-        <input class="input" type="password" name="api-key" id="api-key-opencage"
-               autocomplete="current-password" inputmode="text" spellcheck="false"
-               placeholder="API-Key einfügen" value="${esc(s.opencageKey)}">
-        <button type="button" class="btn secondary small" data-toggle="api-key-opencage">Anzeigen</button>
-      </div>
-      <div class="hint">Gratis-Key: opencagedata.com (2.500 Anfragen/Tag). Wird durch das Caching geschont.</div>
-    </form>
+    <h3>OpenCage · Geokodierung</h3>
+    <div class="keyrow">
+      <input class="input" type="password" id="api-key-opencage" name="opencage-token"
+             autocomplete="off" autocapitalize="off" autocorrect="off" inputmode="text" spellcheck="false"
+             placeholder="API-Key einfügen" value="${esc(s.opencageKey)}">
+      <button type="button" class="btn secondary small" data-toggle="api-key-opencage">Anzeigen</button>
+      <button type="button" class="btn secondary small" id="btnTestOpencage">Testen</button>
+    </div>
+    <div class="hint">Gratis-Key: opencagedata.com (2.500 Anfragen/Tag). Wird durch das Caching geschont.</div>
+    <div id="opencageTest" class="hint" style="margin-top:6px"></div>
 
-    <form id="formDestatis" autocomplete="on" onsubmit="return false" style="margin-top:16px">
-      <h3>Destatis GENESIS · Demografie <span class="badge exp">experimentell</span></h3>
-      <input class="input" type="text" name="username" id="svc-destatis" autocomplete="username"
-             value="Destatis" aria-label="Dienst" style="margin-bottom:8px" readonly>
-      <div class="keyrow">
-        <input class="input" type="password" name="api-key" id="api-key-destatis"
-               autocomplete="current-password" inputmode="text" spellcheck="false"
-               placeholder="Kennung:Passwort oder Token" value="${esc(s.destatisKey)}">
-        <button type="button" class="btn secondary small" data-toggle="api-key-destatis">Anzeigen</button>
-      </div>
-      <div class="hint">Der direkte Browser-Abruf kann an CORS scheitern – dann bleibt der Makro-Trend leer (das Tool rechnet trotzdem normal weiter).</div>
-    </form>
+    <h3 style="margin-top:16px">Destatis GENESIS · Demografie <span class="badge exp">experimentell</span></h3>
+    <div class="keyrow">
+      <input class="input" type="password" id="api-key-destatis" name="destatis-token"
+             autocomplete="off" autocapitalize="off" autocorrect="off" inputmode="text" spellcheck="false"
+             placeholder="Kennung:Passwort oder Token" value="${esc(s.destatisKey)}">
+      <button type="button" class="btn secondary small" data-toggle="api-key-destatis">Anzeigen</button>
+    </div>
+    <div class="hint">Der direkte Browser-Abruf kann an CORS scheitern – dann bleibt der Makro-Trend leer (das Tool rechnet trotzdem normal weiter).</div>
   </div>
 
   <div class="card">
@@ -1220,6 +1220,7 @@ function renderSettings(){
   body.querySelector('#api-key-destatis').addEventListener('input', e=>{
     const st=loadSettings(); st.destatisKey=e.target.value.trim(); saveSettings(st);
   });
+  body.querySelector('#btnTestOpencage').onclick = testOpencageKey;
   const rad = body.querySelector('#osmRadius');
   rad.addEventListener('input', e=>{
     document.getElementById('osmRadiusVal').textContent = e.target.value+' m';
@@ -1234,6 +1235,33 @@ function renderSettings(){
   body.querySelector('#btnClearCache').onclick=()=>{
     clearCache(); document.getElementById('cacheCount').textContent='0';
   };
+}
+
+/* Direkter Verbindungstest: liest den Key aus dem Feld (umgeht jede Speicher-/
+   Autofill-Verfälschung), speichert genau diesen Wert und meldet den HTTP-Status. */
+async function testOpencageKey(){
+  const field = document.getElementById('api-key-opencage');
+  const out   = document.getElementById('opencageTest');
+  const key   = (field.value||'').trim();
+  if(!key){ out.innerHTML = '<span style="color:var(--red)">Bitte zuerst einen API-Key eingeben.</span>'; return; }
+  const st = loadSettings(); st.opencageKey = key; saveSettings(st);   // exakt diesen Wert übernehmen
+  out.innerHTML = '<span class="spin"></span> Teste Key …';
+  try{
+    const res = await fetch(`${CFG.api.opencageUrl}?q=Berlin&key=${encodeURIComponent(key)}&limit=1&no_annotations=1`);
+    if(res.ok){
+      out.innerHTML = `<span style="color:var(--green)">✔ Key gültig und gespeichert (${key.length} Zeichen). Lage-Analyse in Schritt 1 ist jetzt möglich.</span>`;
+    } else if(res.status===401){
+      out.innerHTML = '<span style="color:var(--red)">✖ 401: OpenCage lehnt diesen Key ab (ungültig oder noch nicht aktiviert). Im OpenCage-Dashboard prüfen; auf versehentliche Leerzeichen achten („Anzeigen").</span>';
+    } else if(res.status===402){
+      out.innerHTML = '<span style="color:var(--red)">✖ 402: Tageskontingent aufgebraucht. Morgen erneut versuchen.</span>';
+    } else if(res.status===403){
+      out.innerHTML = '<span style="color:var(--red)">✖ 403: Key gesperrt oder eingeschränkt.</span>';
+    } else {
+      out.innerHTML = '<span style="color:var(--red)">✖ Unerwartet: HTTP '+res.status+'</span>';
+    }
+  }catch(e){
+    out.innerHTML = '<span style="color:var(--red)">✖ Netzwerk-/CORS-Fehler: '+esc(e.message)+'</span>';
+  }
 }
 
 /* =========================================================================
