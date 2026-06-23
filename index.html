@@ -255,7 +255,7 @@ input,select{font-family:inherit;font-size:1rem}
 
 /* Build-/Versionsstempel – bei JEDER Code-Änderung auf Datum + Uhrzeit aktualisieren.
    Macht im Footer sichtbar, welcher Stand gerade live (z. B. auf GitHub Pages) ist. */
-const BUILD_STAMP = '23.06.2026, 10:53 Uhr';
+const BUILD_STAMP = '23.06.2026, 20:46 Uhr';
 
 /* =========================================================================
    KONFIGURATION & RICHTWERTE  (Stand Juni 2026, BY / BW / Bodensee)
@@ -276,6 +276,8 @@ const CFG = {
     sollzins:3.60, zinsbindung:15, tilgung:2.0,
     hausverwaltung:35, mietausfallProzent:2, nichtUmlagefaehigProzent:3, wegRuecklage:1.00,
     grenzsteuersatz:35, gebaeudeanteil:70,
+    // Steuersatz-Ermittlung: 'manuell' (Direkteingabe) oder 'einkommen' (§32a-Tarif)
+    steuerModus:'manuell', veranlagung:'einzel', kirchensteuer:false,
     ekQuote:0.20,
     // Annahmen für die Mehrjahres-Simulation
     mietsteigerung:1.5, wertsteigerung:2.0
@@ -322,6 +324,13 @@ const CFG = {
     ausstattung: { luxus:1.15, gehoben:1.08, normal:1.00, einfach:0.88 },
     dummy:       { balkon:1.05, aufzugAb3:1.05, laerm:0.90, laermSchwelleDb:65 },
     fix:         { garage:15000, stellplatz:7500 }
+  },
+
+  // Einkommensteuer-Grundtarif §32a EStG (Werte VZ 2025) – für die optionale
+  // einkommensbasierte Grenzsteuersatz-Ermittlung. Schätzwert, jährlich anpassbar.
+  steuertarif: {
+    jahr:2025, gfb:12096, z2bis:17443, z3bis:68480, z4bis:277825,
+    z2a:932.30, z3a:176.64, z3c:1015.13, z4c:10911.92, z5c:19246.67
   }
 };
 
@@ -354,6 +363,7 @@ function blankInputs(){
     mietausfallProzent:d.mietausfallProzent, nichtUmlagefaehigProzent:d.nichtUmlagefaehigProzent,
     wegRuecklage:d.wegRuecklage,
     grenzsteuersatz:d.grenzsteuersatz, gebaeudeanteil:d.gebaeudeanteil,
+    steuerModus:d.steuerModus, zvE:null, veranlagung:d.veranlagung, kirchensteuer:d.kirchensteuer,
     mietsteigerung:d.mietsteigerung, wertsteigerung:d.wertsteigerung,
     anbieterCheck:[false,false,false,false,false,false],
     lage:null   // optionales Ergebnis der API-Anreicherung (siehe lageEnrich)
@@ -670,6 +680,46 @@ function baujahrBucket(inp){
   return 'mittel';
 }
 
+/* ----- Einkommensteuer §32a EStG (Grundtarif) – reine Funktion ----- */
+function einkommensteuer(zvE){
+  const t = CFG.steuertarif;
+  zvE = Math.floor(Math.max(0, zvE));
+  let est;
+  if(zvE <= t.gfb)        est = 0;
+  else if(zvE <= t.z2bis){ const y=(zvE-t.gfb)/10000;  est=(t.z2a*y + 1400)*y; }
+  else if(zvE <= t.z3bis){ const z=(zvE-t.z2bis)/10000; est=(t.z3a*z + 2397)*z + t.z3c; }
+  else if(zvE <= t.z4bis)  est = 0.42*zvE - t.z4c;
+  else                     est = 0.45*zvE - t.z5c;
+  return Math.floor(est);
+}
+// Einzel- bzw. Splittingtarif (Zusammenveranlagung verdoppelt die ESt des halben zvE)
+function estVeranlagt(zvE, veranlagung){
+  return veranlagung==='zusammen' ? 2*einkommensteuer(zvE/2) : einkommensteuer(zvE);
+}
+function kirchensteuerSatz(inp){
+  return inp.kirchensteuer ? ((inp.bundesland==='BY'||inp.bundesland==='BW') ? 0.08 : 0.09) : 0;
+}
+// Tatsächlicher Steuereffekt eines Vermietungsergebnisses (>0 = Ersparnis, <0 = Mehrsteuer).
+// Genau diese Funktion nutzen calc UND simulate -> konsistent, eine Quelle.
+function steuerEffektVon(inp, steuerErgebnis){
+  if(inp.steuerModus==='einkommen' && +inp.zvE>0){
+    const zvE = +inp.zvE, ksFaktor = 1 + kirchensteuerSatz(inp);
+    const tax0 = estVeranlagt(zvE, inp.veranlagung);
+    const tax1 = estVeranlagt(zvE + steuerErgebnis, inp.veranlagung);  // Verlust senkt zvE
+    return (tax0 - tax1) * ksFaktor;     // ΔSteuer über die betroffene Progressionsspanne (inkl. KiSt)
+  }
+  const grenz = (+inp.grenzsteuersatz||0)/100;
+  return -steuerErgebnis * grenz;
+}
+// Effektiver Grenzsteuersatz (Faktor) für die Anzeige.
+function effektiverSteuersatz(inp){
+  if(inp.steuerModus==='einkommen' && +inp.zvE>0){
+    const zvE=+inp.zvE, ksFaktor=1+kirchensteuerSatz(inp);
+    return ((estVeranlagt(zvE+100, inp.veranlagung) - estVeranlagt(zvE, inp.veranlagung))/100) * ksFaktor;
+  }
+  return (+inp.grenzsteuersatz||0)/100;
+}
+
 function calc(inp){
   const r = {};
   const kp = +inp.kaufpreis || 0;
@@ -746,13 +796,8 @@ function calc(inp){
   r.werbungskostenJahr = r.afaJahr + r.zinsenJahr1 + r.bewirtschaftungJahr;
   // Steuerliches Ergebnis = Mieteinnahmen − Werbungskosten
   r.steuerErgebnis = jahresmiete - r.werbungskostenJahr;
-  const grenz = (+inp.grenzsteuersatz||0)/100;
-  r.grenz = grenz;
-  if(r.steuerErgebnis < 0){
-    r.steuerEffektJahr = -r.steuerErgebnis * grenz;   // Ersparnis (positiv = Vorteil)
-  } else {
-    r.steuerEffektJahr = -(r.steuerErgebnis * grenz); // zusätzliche Steuer (negativ)
-  }
+  r.grenz = effektiverSteuersatz(inp);                 // Faktor, nur für Anzeige/Simulation-Fallback
+  r.steuerEffektJahr = steuerEffektVon(inp, r.steuerErgebnis);  // >0 = Ersparnis, <0 = Mehrsteuer
   r.steuerEffektMonat = r.steuerEffektJahr/12;
 
   // ---- Cashflow ----
@@ -782,7 +827,6 @@ function simulate(inp, jahre){
   const rate = base.rateMonat;                 // konstante Monatsrate
   const mietW = (+inp.mietsteigerung||0)/100;
   const wertW = (+inp.wertsteigerung||0)/100;
-  const grenz = base.grenz;
   const afaJahr = base.afaJahr;
   const kp = +inp.kaufpreis||0;
 
@@ -813,7 +857,7 @@ function simulate(inp, jahre){
     // Steuer für dieses Jahr (Zinsen sinken → Steuervorteil schmilzt)
     const werbungskosten = afaJahr + zinsenJahr + bewirtschaftung;
     const steuerErgebnis = jahresmiete - werbungskosten;
-    const steuerEffekt = -(steuerErgebnis * grenz);   // >0 = Ersparnis
+    const steuerEffekt = steuerEffektVon(inp, steuerErgebnis);   // >0 = Ersparnis (Modus-abhängig)
 
     const cashflowVor  = jahresmiete - gezahltJahr - bewirtschaftung;
     const cashflowNach = cashflowVor + steuerEffekt;
@@ -1665,11 +1709,27 @@ STEP_RENDER[5] = ()=>{
   </div>
   <div class="card">
     <h2>Steuern</h2>
-    <div class="field"><label>Grenzsteuersatz</label>
-      <select class="input" data-sel="grenzsteuersatz">
-        ${[25,30,35,42,45].map(s=>`<option value="${s}" ${s==i.grenzsteuersatz?'selected':''}>${s} %</option>`).join('')}
-      </select>
+    ${choiceField('Steuersatz ermitteln','steuerModus',[
+      {val:'manuell',label:'Manuell'},{val:'einkommen',label:'Aus Einkommen (genauer)'}])}
+
+    <div id="steuerManuell">
+      <div class="field"><label>Grenzsteuersatz</label>
+        <select class="input" data-sel="grenzsteuersatz">
+          ${[25,30,35,42,45].map(s=>`<option value="${s}" ${s==i.grenzsteuersatz?'selected':''}>${s} %</option>`).join('')}
+        </select>
+        <div class="hint">Dein persönlicher Spitzensteuersatz – falls bekannt.</div>
+      </div>
     </div>
+
+    <div id="steuerEinkommen">
+      ${numField('Zu versteuerndes Haushaltseinkommen','zvE','€/Jahr','Ungefähres zvE (laut letztem Steuerbescheid) – ohne diese Immobilie.')}
+      ${choiceField('Veranlagung','veranlagung',[
+        {val:'einzel',label:'Einzel'},{val:'zusammen',label:'Zusammen (Splitting)'}])}
+      ${choiceField('Kirchensteuerpflichtig?','kirchensteuer',[
+        {val:false,label:'Nein'},{val:true,label:'Ja'}])}
+      <div id="grenzInfo"></div>
+    </div>
+
     <div class="field"><label>Gebäudeanteil am Kaufpreis</label>
       <div class="range-row">
         <input type="range" min="50" max="90" step="1" data-range="gebaeudeanteil" value="${i.gebaeudeanteil}">
@@ -1681,7 +1741,7 @@ STEP_RENDER[5] = ()=>{
   </div>`;
 };
 STEP_BIND[5] = ()=>{
-  bindNums();
+  bindNums(); bindChoices(false);
   document.querySelector('[data-sel=grenzsteuersatz]').addEventListener('change',e=>{update('grenzsteuersatz',+e.target.value);renderSteuer();});
   const rng=document.querySelector('[data-range=gebaeudeanteil]');
   rng.addEventListener('input',e=>{current.inputs.gebaeudeanteil=+e.target.value;document.getElementById('gebVal').textContent=e.target.value+' %';save();renderSteuer();});
@@ -1692,6 +1752,22 @@ function renderSteuer(){
   const i=current.inputs, r=calc(i);
   document.getElementById('wegHint').innerHTML = (i.weg && (+i.wegRuecklage||0) < 1.00)
     ? `<div class="note warn">Deine WEG-Rücklage liegt unter dem Richtwert von 1,00 €/m²/Monat. Fordere die Protokolle der Eigentümerversammlung der letzten 3 Jahre an und prüfe, ob größere Sanierungen anstehen.</div>` : '';
+
+  // Modus umschalten + ermittelten Grenzsteuersatz anzeigen
+  const einkommen = i.steuerModus==='einkommen';
+  const mEl=document.getElementById('steuerManuell'), eEl=document.getElementById('steuerEinkommen');
+  if(mEl) mEl.style.display = einkommen ? 'none' : '';
+  if(eEl) eEl.style.display = einkommen ? '' : 'none';
+  const gi=document.getElementById('grenzInfo');
+  if(gi){
+    if(!(+i.zvE>0)){
+      gi.innerHTML = `<div class="note info">Trage dein zu versteuerndes Einkommen ein – der Grenzsteuersatz wird daraus nach §32a (Tarif ${CFG.steuertarif.jahr}) ermittelt.</div>`;
+    } else {
+      const satz = effektiverSteuersatz(i)*100;
+      gi.innerHTML = `<div class="note green">Ermittelter Grenzsteuersatz: <b>${fmtPct(satz,1)}</b>${kirchensteuerSatz(i)>0?' (inkl. Kirchensteuer)':''} · Tarif ${CFG.steuertarif.jahr}${i.veranlagung==='zusammen'?' · Splitting':''}. Schätzung – kein Soli berücksichtigt.</div>`;
+    }
+  }
+
   const ersparnis = r.steuerEffektJahr>=0;
   document.getElementById('steuerResult').innerHTML = `<div class="result card" style="margin-top:8px">
     <table>
